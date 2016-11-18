@@ -391,7 +391,7 @@ void SocketTask::asyncReadSome() {
         continue;
       }
 
-      while (processRead()) {
+      while (processRead(TRI_StatisticsTime())) {
         if (_abandoned) {
           return;
         }
@@ -442,7 +442,7 @@ void SocketTask::asyncReadSome() {
 
       _readBuffer.increaseLength(transferred);
 
-      while (processRead()) {
+      while (processRead(TRI_StatisticsTime())) {
         if (_closeRequested) {
           break;
         }

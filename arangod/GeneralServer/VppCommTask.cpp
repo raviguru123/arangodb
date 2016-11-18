@@ -220,7 +220,7 @@ void VppCommTask::handleAuthentication(VPackSlice const& header,
 }
 
 // reads data from the socket
-bool VppCommTask::processRead() {
+bool VppCommTask::processRead(double startTime) {
   RequestStatisticsAgent agent(true);
 
   auto& prv = _processReadVariables;
@@ -237,15 +237,25 @@ bool VppCommTask::processRead() {
   bool read_maybe_only_part_of_buffer = false;
   VppInputMessage message;  // filled in CASE 1 or CASE 2b
 
+  if(chunkHeader._isFirst){
+    auto agent = getAgent(chunkHeader._messageID);
+    agent->acquire();
+    agent->requestStatisticsAgentSetReadStart(startTime);
+  }
+
   if (chunkHeader._isFirst && chunkHeader._chunk == 1) {
     // CASE 1: message is in one chunk
+
     if (auto rv = getMessageFromSingleChunk(chunkHeader, message, doExecute,
                                             vpackBegin, chunkEnd)) {
+      getAgent(chunkHeader._messageID)->requestStatisticsAgentSetReadEnd();
       return *rv;
     }
   } else {
     if (auto rv = getMessageFromMultiChunks(chunkHeader, message, doExecute,
                                             vpackBegin, chunkEnd)) {
+      //if rv
+      getAgent(chunkHeader._messageID)->requestStatisticsAgentSetReadEnd();
       return *rv;
     }
   }
@@ -412,10 +422,6 @@ boost::optional<bool> VppCommTask::getMessageFromSingleChunk(
   _agents.emplace(
       std::make_pair(chunkHeader._messageID, RequestStatisticsAgent(true)));
 
-  auto agent = getAgent(chunkHeader._messageID);
-  agent->acquire();
-  agent->requestStatisticsAgentSetReadStart();
-
   LOG_TOPIC(DEBUG, Logger::COMMUNICATION) << "VppCommTask: "
                                           << "chunk contains single message";
   std::size_t payloads = 0;
@@ -444,7 +450,6 @@ boost::optional<bool> VppCommTask::getMessageFromSingleChunk(
   message.set(chunkHeader._messageID, std::move(buffer), payloads);  // fixme
 
   doExecute = true;
-  getAgent(chunkHeader._messageID)->requestStatisticsAgentSetReadEnd();
   return boost::none;
 }
 
@@ -460,9 +465,6 @@ boost::optional<bool> VppCommTask::getMessageFromMultiChunks(
     _agents.emplace(
         std::make_pair(chunkHeader._messageID, RequestStatisticsAgent(true)));
 
-    auto agent = getAgent(chunkHeader._messageID);
-    agent->acquire();
-    agent->requestStatisticsAgentSetReadStart();
 
     LOG_TOPIC(DEBUG, Logger::COMMUNICATION) << "VppCommTask: "
                                             << "chunk starts a new message";
@@ -542,7 +544,6 @@ boost::optional<bool> VppCommTask::getMessageFromMultiChunks(
       // check length
 
       doExecute = true;
-      getAgent(chunkHeader._messageID)->requestStatisticsAgentSetReadEnd();
     }
     LOG_TOPIC(DEBUG, Logger::COMMUNICATION)
         << "VppCommTask: "

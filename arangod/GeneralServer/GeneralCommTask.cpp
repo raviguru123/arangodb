@@ -100,9 +100,8 @@ void GeneralCommTask::executeRequest(
   bool ok = false;
 
   if (found && (asyncExecution == "true" || asyncExecution == "store")) {
-    // getAgent(messageId)->requestStatisticsAgentSetAsync();
     handler->requestStatisticsAgentSetAsync();
-    uint64_t jobId = 0;
+    uint64_t jobId = 0; //what kind of id is this? message id?
 
     if (asyncExecution == "store") {
       // persist the responses
@@ -199,11 +198,11 @@ void GeneralCommTask::handleRequestDirectly(
   JobGuard guard(_loop);
   guard.work();
 
-  RequestStatisticsAgent* agent = getAgent(handler->messageId());
+  RequestStatisticsAgent* agent = getAgent(handler->messageId()); //review
 
   auto self = shared_from_this();
   handler->initEngine(_loop, agent, [self, this](RestHandler* h) {
-    h->transferTo(getAgent(h->messageId()));
+    h->transferTo(getAgent(h->messageId())); //review
     addResponse(h->response());
   });
 

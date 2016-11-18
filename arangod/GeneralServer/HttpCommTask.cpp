@@ -104,7 +104,7 @@ void HttpCommTask::handleSimpleError(rest::ResponseCode code, int errorNum,
 
 void HttpCommTask::addResponse(HttpResponse* response) {
   resetKeepAlive();
-   
+
   _requestPending = false;
 
   // CORS response handling
@@ -119,7 +119,7 @@ void HttpCommTask::addResponse(HttpResponse* response) {
     // send back "Access-Control-Allow-Credentials" header
     response->setHeaderNCIfNotSet(StaticStrings::AccessControlAllowCredentials,
                                   (_denyCredentials ? "false" : "true"));
-    
+
     // use "IfNotSet" here because we should not override HTTP headers set
     // by Foxx applications
     response->setHeaderNCIfNotSet(StaticStrings::AccessControlExposeHeaders,
@@ -163,7 +163,7 @@ void HttpCommTask::addResponse(HttpResponse* response) {
         << "\"";
   }
 
-  auto agent = getAgent(1);
+  auto agent = getAgent(1UL);
   double const totalTime = agent->elapsedSinceReadStart();
 
   // append write buffer and statistics
@@ -184,7 +184,7 @@ void HttpCommTask::addResponse(HttpResponse* response) {
 }
 
 // reads data from the socket
-bool HttpCommTask::processRead() {
+bool HttpCommTask::processRead(double startTime) {
   cancelKeepAlive();
 
   TRI_ASSERT(_readBuffer.c_str() != nullptr);
@@ -209,6 +209,7 @@ bool HttpCommTask::processRead() {
     if (_newRequest) {
       // acquire a new statistics entry for the request
       agent->acquire();
+      agent->requestStatisticsAgentSetReadStart(startTime);
 
 #if USE_DEV_TIMERS
       if (RequestStatisticsAgent::_statistics != nullptr) {
@@ -233,8 +234,6 @@ bool HttpCommTask::processRead() {
       return false;
     }
 
-    // request started
-    agent->requestStatisticsAgentSetReadStart();
 
     // check for the end of the request
     for (; ptr < end; ptr++) {
@@ -268,7 +267,7 @@ bool HttpCommTask::processRead() {
           GeneralServerFeature::keepAliveTimeout(), /*skipSocketInit*/ true);
       commTask->addToReadBuffer(_readBuffer.c_str() + 11,
                                 _readBuffer.length() - 11);
-      commTask->processRead();
+      commTask->processRead(startTime);
       commTask->start();
       // statistics?!
       return false;
@@ -601,7 +600,6 @@ void HttpCommTask::processRequest(std::unique_ptr<HttpRequest> request) {
 
   response->setContentType(request->contentTypeResponse());
   response->setContentTypeRequested(request->contentTypeResponse());
-
   executeRequest(std::move(request), std::move(response));
 }
 
