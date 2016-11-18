@@ -39,21 +39,41 @@ class RestStatusElement {
   enum class State { DONE, FAIL, QUEUED, THEN, WAIT_FOR };
 
  public:
+  //uset in RestStatus DONE,FAIL,QUEUE
   explicit RestStatusElement(State status)
       : _state(status), _previous(nullptr) {
-    TRI_ASSERT(_state != State::THEN);
+    TRI_ASSERT(_state != State::THEN); // WAIT_FOR ok?! (fc) explain
   }
 
-  RestStatusElement(State status, std::shared_ptr<RestStatusElement> previous,
-                    std::function<std::shared_ptr<RestStatus>()> callback)
-      : _state(status), _previous(previous), _callThen(callback) {}
+  //has previous element -- and needs to ... ?
+  //used in RestStatus done function
+  RestStatusElement(State status
+                   ,std::shared_ptr<RestStatusElement> previous
+                   ,std::function<std::shared_ptr<RestStatus>()> callback
+                   )
+                   :_state(status)
+                   ,_previous(previous)
+                   ,_callThen(callback)
+                   {}
 
-  RestStatusElement(State status, std::shared_ptr<RestStatusElement> previous)
-      : _state(status), _previous(previous) {}
+  //has previous element -- and does not need to wait?!?! (fc) explain
+  //used in RestStatus WAIT_FOR function
+  RestStatusElement(State status
+                   ,std::shared_ptr<RestStatusElement> previous
+                   )
+                   :_state(status)
+                   ,_previous(previous)
+                   {}
 
-  RestStatusElement(State status,
-                    std::function<void(std::function<void()>)> callback)
-      : _state(status), _previous(nullptr), _callWaitFor(callback) {}
+  //has no previous element -- need to call wait for
+  //used in RestStatus then function
+  RestStatusElement(State status
+                   ,std::function<void(std::function<void()>)> callback
+                   )
+                   :_state(status)
+                   ,_previous(nullptr)
+                   ,_callWaitFor(callback)
+                   {}
 
  public:
   std::shared_ptr<RestStatusElement> previous() const { return _previous; }
@@ -82,10 +102,9 @@ class RestStatus {
   static RestStatus const FAIL;
   static RestStatus const QUEUE;
 
-  static RestStatus WAIT_FOR(
-      std::function<void(std::function<void()>)> callback) {
-    return RestStatus(
-        new RestStatusElement(RestStatusElement::State::WAIT_FOR, callback));
+  //function - side effects? (probably as no function-pointer is used)
+  static RestStatus WAIT_FOR(std::function<void(std::function<void()>)> callback){
+    return RestStatus(new RestStatusElement(RestStatusElement::State::WAIT_FOR, callback));
   }
 
  public:
@@ -97,37 +116,38 @@ class RestStatus {
   ~RestStatus() = default;
 
  public:
+  // if callback returns class type
   template <typename FUNC>
   auto then(FUNC callback) const ->
-      typename std::enable_if<std::is_void<decltype(callback())>::value,
-                              RestStatus>::type {
-    return RestStatus(new RestStatusElement(
-        RestStatusElement::State::THEN, _element, [callback]() {
-          callback();
-          return std::shared_ptr<RestStatus>(nullptr);
-        }));
+  typename std::enable_if<std::is_void<decltype(callback())>::value,RestStatus>::type {
+    return RestStatus(new RestStatusElement(RestStatusElement::State::THEN
+                                           ,_element
+                                           ,[callback]() {
+                                              callback();
+                                              return std::shared_ptr<RestStatus>(nullptr);
+                                            }
+                                           )
+                     );
   }
 
+  // if callback returns void
   template <typename FUNC>
   auto then(FUNC callback) const ->
-      typename std::enable_if<std::is_class<decltype(callback())>::value,
-                              RestStatus>::type {
-    return RestStatus(new RestStatusElement(
-        RestStatusElement::State::THEN, _element, [callback]() {
-          return std::shared_ptr<RestStatus>(new RestStatus(callback()));
-        }));
+  typename std::enable_if<std::is_class<decltype(callback())>::value,RestStatus>::type {
+    return RestStatus(new RestStatusElement(RestStatusElement::State::THEN                                                 // status      ResStatusElement::State
+                                           ,_element                                                                       // previous -- shared ptr to RestStatusElement
+                                           ,[callback]() {return std::shared_ptr<RestStatus>(new RestStatus(callback()));} // callback -- std::function<std::shared_ptr<RestStatus>()>
+                                           )
+                     );
   }
 
   RestStatus done() {
-    return RestStatus(
-        new RestStatusElement(RestStatusElement::State::DONE, _element));
+    return RestStatus(new RestStatusElement(RestStatusElement::State::DONE, _element));
   }
 
  public:
   std::shared_ptr<RestStatusElement> element() { return _element; }
-
   bool isLeaf() const { return _element->isLeaf(); }
-
   bool isFailed() const {
     return _element->_state == RestStatusElement::State::FAIL;
   }

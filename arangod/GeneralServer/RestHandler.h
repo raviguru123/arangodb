@@ -97,26 +97,29 @@ class RestHandler : public RequestStatisticsAgent,
   bool _needsOwnThread = false;
 
  public:
-  void initEngine(EventLoop loop, RequestStatisticsAgent* agent,
-                  std::function<void(RestHandler*)> storeResult) {
-    _storeResult = storeResult;
-    _engine.init(loop, agent);
-  }
 
+
+  int runEngine(bool synchron);
   int asyncRunEngine() { return _engine.asyncRun(shared_from_this()); }
   int syncRunEngine() {
     _storeResult = [](RestHandler*) {};
     return _engine.syncRun(shared_from_this());
   }
 
-  int prepareEngine();
-  int executeEngine();
-  int runEngine(bool synchron);
-  int finalizeEngine();
+  void initEngine(EventLoop loop, RequestStatisticsAgent* agent,
+                  std::function<void(RestHandler*)> storeResult) {
+    _storeResult = storeResult;
+    _engine.init(loop, agent);
+  }
+
+  int prepareEngine();  // prepareExecute , State to Execute or Failed
+  int executeEngine();  // res = execute(); res.isLeaf ? State to Finalize, _storeResult(this)
+                        //                             : State to Run, appendRestStatus(res.element)
+  int finalizeEngine(); //finalizeExecute, State to Done or Failed
 
  private:
   RestEngine _engine;
-  std::function<void(rest::RestHandler*)> _storeResult;
+  std::function<void(rest::RestHandler*)> _storeResult; //function that stores result in a given handler?
 };
 
 inline uint64_t RestHandler::messageId() const {

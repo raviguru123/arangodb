@@ -62,7 +62,7 @@ class RestEngine {
   bool hasSteps() { return !_elements.empty(); }
 
   std::shared_ptr<RestStatusElement> popStep() {
-    auto element = *_elements.rbegin();
+    auto element = _elements.back();
     _elements.pop_back();
     return element;
   }
@@ -71,10 +71,10 @@ class RestEngine {
   int run(std::shared_ptr<rest::RestHandler>, bool synchron);
 
  private:
-  State _state = State::PREPARE;
-  std::vector<std::shared_ptr<RestStatusElement>> _elements;
+  State _state = State::PREPARE; // engine starts with state prepare
+  std::vector<std::shared_ptr<RestStatusElement>> _elements; //queue of operations
 
-  EventLoop _loop;
+  EventLoop _loop; //wrapped io_service
   rest::RequestStatisticsAgent* _agent = nullptr;
 };
 }

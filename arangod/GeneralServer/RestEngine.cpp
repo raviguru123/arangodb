@@ -48,7 +48,7 @@ int RestEngine::syncRun(std::shared_ptr<rest::RestHandler> handler) {
 
 void RestEngine::appendRestStatus(std::shared_ptr<RestStatusElement> element) {
   while (element.get() != nullptr) {
-    _elements.emplace_back(element);
+    _elements.push_back(std::move(element));
     element = element->previous();
   }
 }

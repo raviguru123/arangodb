@@ -40,7 +40,6 @@ class GeneralResponse;
 namespace rest {
 class GeneralServer;
 
-//
 // The flow of events is as follows:
 //
 // (1) After reading data from the client, `processRead()` is called. Each

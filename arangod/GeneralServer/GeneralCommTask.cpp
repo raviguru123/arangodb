@@ -241,14 +241,15 @@ bool GeneralCommTask::handleRequestAsync(std::shared_ptr<RestHandler> handler,
   size_t queue = handler->queue();
   auto self = shared_from_this();
 
-  std::unique_ptr<Job> job(
-      new Job(_server, std::move(handler),
-              [self, this](std::shared_ptr<RestHandler> h) {
-                JobGuard guard(_loop);
-                guard.work();
-
-                h->asyncRunEngine();
-              }));
+  std::unique_ptr<Job> job(new Job(_server
+                                  ,std::move(handler)
+                                  ,[self, this](std::shared_ptr<RestHandler> h) {
+                                     JobGuard guard(_loop);
+                                     guard.work();
+                                     h->asyncRunEngine();
+                                   }
+                                  )
+                          );
 
   return SchedulerFeature::SCHEDULER->jobQueue()->queue(queue, std::move(job));
 }
