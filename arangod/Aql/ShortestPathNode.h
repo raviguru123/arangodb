@@ -68,6 +68,12 @@ class ShortestPathNode : public ExecutionNode {
   /// @brief return the type of the node
   NodeType getType() const override final { return SHORTEST_PATH; }
 
+  /// @brief flag if smart search can be used (Enterprise only)
+  bool isSmart() const {
+#warning FIXME
+    return true;
+  }
+
   /// @brief export to VelocyPack
   void toVelocyPackHelper(arangodb::velocypack::Builder&,
                           bool) const override final;

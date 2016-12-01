@@ -24,6 +24,9 @@
 #include "ShortestPathBlock.h"
 #include "Aql/ExecutionEngine.h"
 #include "Aql/ExecutionPlan.h"
+#ifdef USE_ENTERPRISE
+#include "Enterprise/Cluster/SmartGraphPathFinder.h"
+#endif
 #include "Indexes/IndexElement.h"
 #include "Utils/AqlTransaction.h"
 #include "Utils/OperationCursor.h"
@@ -40,17 +43,18 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 typedef arangodb::basics::DynamicDistanceFinder<
-    arangodb::velocypack::Slice, arangodb::velocypack::Slice, double,
-    arangodb::traverser::ShortestPath> ArangoDBPathFinder;
+    VPackSlice, VPackSlice, double, arangodb::traverser::ShortestPath>
+    ArangoDBPathFinder;
 
-typedef arangodb::basics::ConstDistanceFinder<arangodb::velocypack::Slice,
-                                              arangodb::velocypack::Slice,
-                                              arangodb::basics::VelocyPackHelper::VPackStringHash, 
-                                              arangodb::basics::VelocyPackHelper::VPackStringEqual,
-                                              arangodb::traverser::ShortestPath>
+typedef arangodb::basics::ConstDistanceFinder<
+    VPackSlice, VPackSlice, arangodb::basics::VelocyPackHelper::VPackStringHash,
+    arangodb::basics::VelocyPackHelper::VPackStringEqual,
+    arangodb::traverser::ShortestPath>
     ArangoDBConstDistancePathFinder;
 
-
+#ifdef USE_ENTERPRISE
+using SmartGraphConstDistanceFinder = arangodb::traverser::SmartGraphConstDistanceFinder;
+#endif
 
 using namespace arangodb::aql;
 
@@ -395,33 +399,29 @@ ShortestPathBlock::ShortestPathBlock(ExecutionEngine* engine,
 
   if (arangodb::ServerState::instance()->isCoordinator()) {
     if (_opts.useWeight) {
-      _finder.reset(new arangodb::basics::DynamicDistanceFinder<
-                    arangodb::velocypack::Slice, arangodb::velocypack::Slice,
-                    double, arangodb::traverser::ShortestPath>(
+      _finder.reset(new ArangoDBPathFinder(
           EdgeWeightExpanderCluster(this, false),
           EdgeWeightExpanderCluster(this, true), _opts.bidirectional));
     } else {
-      _finder.reset(new arangodb::basics::ConstDistanceFinder<
-                    arangodb::velocypack::Slice, arangodb::velocypack::Slice,
-                    arangodb::basics::VelocyPackHelper::VPackStringHash,
-                    arangodb::basics::VelocyPackHelper::VPackStringEqual,
-                    arangodb::traverser::ShortestPath>(
-          ConstDistanceExpanderCluster(this, false),
-          ConstDistanceExpanderCluster(this, true)));
+#ifdef USE_ENTERPRISE
+      if (ep->isSmart()) {
+        _finder.reset(new SmartGraphConstDistanceFinder());
+      } else {
+#endif
+        _finder.reset(new ArangoDBConstDistancePathFinder(
+            ConstDistanceExpanderCluster(this, false),
+            ConstDistanceExpanderCluster(this, true)));
+#ifdef USE_ENTERPRISE
+    }
+#endif
     }
   } else {
     if (_opts.useWeight) {
-      _finder.reset(new arangodb::basics::DynamicDistanceFinder<
-                    arangodb::velocypack::Slice, arangodb::velocypack::Slice,
-                    double, arangodb::traverser::ShortestPath>(
+      _finder.reset(new ArangoDBPathFinder(
           EdgeWeightExpanderLocal(this, false),
           EdgeWeightExpanderLocal(this, true), _opts.bidirectional));
     } else {
-      _finder.reset(new arangodb::basics::ConstDistanceFinder<
-                    arangodb::velocypack::Slice, arangodb::velocypack::Slice,
-                    arangodb::basics::VelocyPackHelper::VPackStringHash,
-                    arangodb::basics::VelocyPackHelper::VPackStringEqual,
-                    arangodb::traverser::ShortestPath>(
+      _finder.reset(new ArangoDBConstDistancePathFinder(
           ConstDistanceExpanderLocal(this, false),
           ConstDistanceExpanderLocal(this, true)));
     }
