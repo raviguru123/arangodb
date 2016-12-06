@@ -417,8 +417,19 @@ double ShortestPathNode::estimateCost(size_t& nrItems) const {
   auto trx = _plan->getAst()->query()->trx();
   size_t edgesCount = 0;
   double nodesEstimate = 0;
+  auto collections = _plan->getAst()->query()->collections();
 
-  for (auto const& collection : _edgeColls) {
+  for (auto const& it : _edgeColls) {
+
+    auto collection = collections->get(it->getName());
+
+    if (collection == nullptr) {
+      THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_INTERNAL,
+                                     "unexpected pointer for collection");
+    }
+
+    TRI_ASSERT(collection != nullptr);
+
     size_t edges = collection->count();
 
     auto indexes = trx->indexesForCollection(collection->name);
