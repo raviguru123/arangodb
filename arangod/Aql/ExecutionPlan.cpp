@@ -35,7 +35,6 @@
 #include "Aql/Optimizer.h"
 #include "Aql/Query.h"
 #include "Aql/ShortestPathNode.h"
-#include "Aql/ShortestPathOptions.h"
 #include "Aql/SortNode.h"
 #include "Aql/TraversalNode.h"
 #include "Aql/Variable.h"
@@ -145,8 +144,9 @@ static std::unique_ptr<traverser::TraverserOptions> CreateTraversalOptions(
   return options;
 }
 
-static ShortestPathOptions CreateShortestPathOptions(AstNode const* node) {
-  ShortestPathOptions options;
+static std::unique_ptr<traverser::ShortestPathOptions>
+CreateShortestPathOptions(Transaction* trx, AstNode const* node) {
+  auto options = std::make_unique<traverser::ShortestPathOptions>(trx);
 
   if (node != nullptr && node->type == NODE_TYPE_OBJECT) {
     size_t n = node->numMembers();
@@ -161,10 +161,10 @@ static ShortestPathOptions CreateShortestPathOptions(AstNode const* node) {
         TRI_ASSERT(value->isConstant());
 
         if (name == "weightAttribute" && value->isStringValue()) {
-          options.weightAttribute =
-              std::string(value->getStringValue(), value->getStringLength());
+          options->setWeightAttribute(
+              std::string(value->getStringValue(), value->getStringLength()));
         } else if (name == "defaultWeight" && value->isNumericValue()) {
-          options.defaultWeight = value->getDoubleValue();
+          options->setDefaultWeight(value->getDoubleValue());
         }
       }
     }
@@ -787,8 +787,8 @@ ExecutionNode* ExecutionPlan::fromNodeShortestPath(ExecutionNode* previous,
   AstNode const* target = parseTraversalVertexNode(previous, node->getMember(2));
   AstNode const* graph = node->getMember(3);
 
-  ShortestPathOptions options = CreateShortestPathOptions(node->getMember(4));
-
+  std::unique_ptr<traverser::ShortestPathOptions> options =
+      CreateShortestPathOptions(getAst()->query()->trx(), node->getMember(4));
 
   // First create the node
   auto spNode = new ShortestPathNode(this, nextId(), _ast->query()->vocbase(),

@@ -162,7 +162,6 @@ SET(ARANGOD_SOURCES
   Aql/ShortStringStorage.cpp
   Aql/ShortestPathBlock.cpp
   Aql/ShortestPathNode.cpp
-  Aql/ShortestPathOptions.cpp
   Aql/SortBlock.cpp
   Aql/SortCondition.cpp
   Aql/SortNode.cpp
@@ -309,7 +308,6 @@ SET(ARANGOD_SOURCES
   V8Server/FoxxQueuesFeature.cpp
   V8Server/V8Context.cpp
   V8Server/V8DealerFeature.cpp
-  V8Server/V8Traverser.cpp
   V8Server/v8-actions.cpp
   V8Server/v8-collection-util.cpp
   V8Server/v8-collection.cpp

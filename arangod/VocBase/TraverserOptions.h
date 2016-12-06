@@ -227,6 +227,42 @@ struct TraverserOptions : public BaseTraverserOptions {
   EdgeCursor* nextCursorCoordinator(arangodb::velocypack::Slice, size_t) const;
 };
 
+struct ShortestPathOptions : public BaseTraverserOptions {
+
+ private:
+
+  double _defaultWeight;
+  std::string _weightAttribute;
+
+ public:
+
+  explicit ShortestPathOptions(arangodb::Transaction* trx)
+    : BaseTraverserOptions(trx),
+      _defaultWeight(1),
+      _weightAttribute("") {}
+
+  void setWeightAttribute(std::string const& attr) {
+    _weightAttribute = attr;
+  }
+
+  void setDefaultWeight(double weight) {
+    _defaultWeight = weight;
+  }
+
+  bool usesWeight() {
+    return !_weightAttribute.empty();
+  }
+
+  std::string const weightAttribute() {
+    return _weightAttribute;
+  }
+
+  double defaultWeight() {
+    return _defaultWeight;
+  }
+
+};
+
 }
 }
 #endif

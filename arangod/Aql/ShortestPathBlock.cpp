@@ -347,15 +347,13 @@ ShortestPathBlock::ShortestPathBlock(ExecutionEngine* engine,
     : ExecutionBlock(engine, ep),
       _vertexVar(nullptr),
       _edgeVar(nullptr),
-      _opts(_trx),
+      _opts(ep->options()),
       _posInPath(0),
       _pathLength(0),
       _path(nullptr),
       _useStartRegister(false),
       _useTargetRegister(false),
       _usedConstant(false) {
-
-  ep->fillOptions(_opts);
   _mmdr.reset(new ManagedDocumentResult(_trx));
 
   size_t count = ep->_edgeColls.size();
@@ -364,8 +362,8 @@ ShortestPathBlock::ShortestPathBlock(ExecutionEngine* engine,
 
   for (size_t j = 0; j < count; ++j) {
     auto info = std::make_unique<arangodb::traverser::EdgeCollectionInfo>(
-        _trx, ep->_edgeColls[j]->getName(), ep->_directions[j], _opts.weightAttribute,
-        _opts.defaultWeight);
+        _trx, ep->_edgeColls[j]->getName(), ep->_directions[j],
+        _opts->weightAttribute(), _opts->defaultWeight());
     _collectionInfos.emplace_back(info.get());
     info.release();
   }
@@ -398,10 +396,10 @@ ShortestPathBlock::ShortestPathBlock(ExecutionEngine* engine,
   _path = std::make_unique<arangodb::traverser::ShortestPath>();
 
   if (arangodb::ServerState::instance()->isCoordinator()) {
-    if (_opts.useWeight) {
+    if (_opts->usesWeight()) {
       _finder.reset(new ArangoDBPathFinder(
           EdgeWeightExpanderCluster(this, false),
-          EdgeWeightExpanderCluster(this, true), _opts.bidirectional));
+          EdgeWeightExpanderCluster(this, true), true));
     } else {
 #ifdef USE_ENTERPRISE
       if (ep->isSmart()) {
@@ -416,10 +414,10 @@ ShortestPathBlock::ShortestPathBlock(ExecutionEngine* engine,
 #endif
     }
   } else {
-    if (_opts.useWeight) {
+    if (_opts->usesWeight()) {
       _finder.reset(new ArangoDBPathFinder(
           EdgeWeightExpanderLocal(this, false),
-          EdgeWeightExpanderLocal(this, true), _opts.bidirectional));
+          EdgeWeightExpanderLocal(this, true), true));
     } else {
       _finder.reset(new ArangoDBConstDistancePathFinder(
           ConstDistanceExpanderLocal(this, false),
@@ -478,6 +476,11 @@ bool ShortestPathBlock::nextPath(AqlItemBlock const* items) {
     // Both are constant, after this computation we are done
     _usedConstant = true;
   }
+  TransactionBuilderLeaser startBuilder(_opts->_trx);
+  TransactionBuilderLeaser targetBuilder(_opts->_trx);
+  
+  VPackSlice start;
+  VPackSlice end;
   if (!_useStartRegister) {
     auto pos = _startVertexId.find('/');
     if (pos == std::string::npos) {
@@ -487,13 +490,15 @@ bool ShortestPathBlock::nextPath(AqlItemBlock const* items) {
                                            "_id are allowed");
       return false;
     } else {
-      _opts.setStart(_startVertexId);
+      startBuilder->add(VPackValue(_startVertexId));
+      start = startBuilder->slice();
     }
   } else {
     AqlValue const& in = items->getValueReference(_pos, _startReg);
     if (in.isObject()) {
       try {
-        _opts.setStart(_trx->extractIdString(in.slice()));
+        startBuilder->add(VPackValue(_trx->extractIdString(in.slice())));
+        start = startBuilder->slice();
       }
       catch (...) {
         // _id or _key not present... ignore this error and fall through
@@ -501,8 +506,7 @@ bool ShortestPathBlock::nextPath(AqlItemBlock const* items) {
         return false;
       }
     } else if (in.isString()) {
-      _startVertexId = in.slice().copyString();
-      _opts.setStart(_startVertexId);
+      start = in.slice();
     } else {
       _engine->getQuery()->registerWarning(
           TRI_ERROR_BAD_PARAMETER, "Invalid input for Shortest Path: Only "
@@ -522,14 +526,15 @@ bool ShortestPathBlock::nextPath(AqlItemBlock const* items) {
                                        "_id are allowed");
       return false;
     } else {
-      _opts.setEnd(_targetVertexId);
+      targetBuilder->add(VPackValue(_targetVertexId));
+      end = targetBuilder->slice();
     }
   } else {
     AqlValue const& in = items->getValueReference(_pos, _targetReg);
     if (in.isObject()) {
       try {
-        std::string idString = _trx->extractIdString(in.slice());
-        _opts.setEnd(idString);
+        targetBuilder->add(VPackValue(_trx->extractIdString(in.slice())));
+        end = targetBuilder->slice();
       }
       catch (...) {
         // _id or _key not present... ignore this error and fall through
@@ -537,8 +542,7 @@ bool ShortestPathBlock::nextPath(AqlItemBlock const* items) {
         return false;
       }
     } else if (in.isString()) {
-      _targetVertexId = in.slice().copyString();
-      _opts.setEnd(_targetVertexId);
+      end = in.slice();
     } else {
       _engine->getQuery()->registerWarning(
           TRI_ERROR_BAD_PARAMETER, "Invalid input for Shortest Path: Only "
@@ -548,8 +552,6 @@ bool ShortestPathBlock::nextPath(AqlItemBlock const* items) {
     }
   }
 
-  VPackSlice start = _opts.getStart();
-  VPackSlice end = _opts.getEnd();
   TRI_ASSERT(_finder != nullptr);
   // We do not need this data anymore. Result has been processed.
   // Save some memory.

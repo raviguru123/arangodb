@@ -26,17 +26,13 @@
 
 #include "Aql/ExecutionNode.h"
 #include "Aql/Graphs.h"
-#include "Aql/ShortestPathOptions.h"
 #include "Cluster/TraverserEngineRegistry.h"
 #include "VocBase/LogicalCollection.h"
+#include "VocBase/TraverserOptions.h"
 
 #include <velocypack/Builder.h>
 
 namespace arangodb {
-
-namespace traverser {
-struct ShortestPathOptions;
-}
 namespace aql {
 
 /// @brief class ShortestPathNode
@@ -49,7 +45,7 @@ class ShortestPathNode : public ExecutionNode {
  public:
   ShortestPathNode(ExecutionPlan* plan, size_t id, TRI_vocbase_t* vocbase,
                 uint64_t direction, AstNode const* start, AstNode const* target,
-                AstNode const* graph, ShortestPathOptions const& options);
+                AstNode const* graph, std::unique_ptr<traverser::ShortestPathOptions>& options);
 
   ShortestPathNode(ExecutionPlan* plan, arangodb::velocypack::Slice const& base);
 
@@ -64,7 +60,7 @@ class ShortestPathNode : public ExecutionNode {
                    std::string const& startVertexId,
                    Variable const* inTargetVariable,
                    std::string const& targetVertexId,
-                   ShortestPathOptions const& options);
+                   std::unique_ptr<traverser::ShortestPathOptions>& options);
 
  public:
   /// @brief return the type of the node
@@ -72,8 +68,7 @@ class ShortestPathNode : public ExecutionNode {
 
   /// @brief flag if smart search can be used (Enterprise only)
   bool isSmart() const {
-#warning FIXME
-    return true;
+    return false;
   }
 
   /// @brief export to VelocyPack
@@ -160,9 +155,7 @@ class ShortestPathNode : public ExecutionNode {
     }
   }
 
-  void fillOptions(arangodb::traverser::ShortestPathOptions&) const;
-
-  ShortestPathOptions const* options() const;
+  traverser::ShortestPathOptions* options() const;
 
   std::vector<std::unique_ptr<aql::Collection>> const& edgeColls() const {
     return _edgeColls;
@@ -220,7 +213,7 @@ class ShortestPathNode : public ExecutionNode {
   Graph const* _graphObj;
 
   /// @brief Options for traversals
-  ShortestPathOptions _options;
+  std::unique_ptr<traverser::ShortestPathOptions> _options;
 };
 
 } // namespace arangodb::aql

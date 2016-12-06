@@ -30,7 +30,6 @@
 #include "Aql/ExecutionPlan.h"
 #include "Indexes/Index.h"
 #include "Utils/CollectionNameResolver.h"
-#include "V8Server/V8Traverser.h"
 
 #include <velocypack/Iterator.h>
 #include <velocypack/velocypack-aliases.h>
@@ -76,11 +75,10 @@ static TRI_edge_direction_e parseDirection (uint64_t dirNum) {
   }
 }
 
-ShortestPathNode::ShortestPathNode(ExecutionPlan* plan, size_t id,
-                                   TRI_vocbase_t* vocbase, uint64_t direction,
-                                   AstNode const* start, AstNode const* target,
-                                   AstNode const* graph,
-                                   ShortestPathOptions const& options)
+ShortestPathNode::ShortestPathNode(
+    ExecutionPlan* plan, size_t id, TRI_vocbase_t* vocbase, uint64_t direction,
+    AstNode const* start, AstNode const* target, AstNode const* graph,
+    std::unique_ptr<traverser::ShortestPathOptions>& options)
     : ExecutionNode(plan, id),
       _vocbase(vocbase),
       _vertexOutVariable(nullptr),
@@ -88,7 +86,7 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan, size_t id,
       _inStartVariable(nullptr),
       _inTargetVariable(nullptr),
       _graphObj(nullptr),
-      _options(options) {
+      _options(options.release()) {
 
   TRI_ASSERT(_vocbase != nullptr);
   TRI_ASSERT(start != nullptr);
@@ -163,15 +161,13 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan, size_t id,
   parseNodeInput(target, _targetVertexId, _inTargetVariable);
 }
 
-ShortestPathNode::ShortestPathNode(ExecutionPlan* plan, size_t id,
-                                   TRI_vocbase_t* vocbase,
-                                   std::vector<std::unique_ptr<aql::Collection>> const& edgeColls,
-                                   std::vector<TRI_edge_direction_e> const& directions,
-                                   Variable const* inStartVariable,
-                                   std::string const& startVertexId,
-                                   Variable const* inTargetVariable,
-                                   std::string const& targetVertexId,
-                                   ShortestPathOptions const& options)
+ShortestPathNode::ShortestPathNode(
+    ExecutionPlan* plan, size_t id, TRI_vocbase_t* vocbase,
+    std::vector<std::unique_ptr<aql::Collection>> const& edgeColls,
+    std::vector<TRI_edge_direction_e> const& directions,
+    Variable const* inStartVariable, std::string const& startVertexId,
+    Variable const* inTargetVariable, std::string const& targetVertexId,
+    std::unique_ptr<traverser::ShortestPathOptions>& options)
     : ExecutionNode(plan, id),
       _vocbase(vocbase),
       _vertexOutVariable(nullptr),
@@ -182,8 +178,7 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan, size_t id,
       _targetVertexId(targetVertexId),
       _directions(directions),
       _graphObj(nullptr),
-      _options(options) {
-
+      _options(options.release()) {
   _graphInfo.openArray();
   for (auto const& it : edgeColls) {
     // Collections cannot be copied. So we need to create new ones to prevent leaks
@@ -195,19 +190,9 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan, size_t id,
   _graphInfo.close();
 }
 
-void ShortestPathNode::fillOptions(arangodb::traverser::ShortestPathOptions& opts) const {
-  if (!_options.weightAttribute.empty()) {
-    opts.useWeight = true;
-    opts.weightAttribute = _options.weightAttribute;
-    opts.defaultWeight = _options.defaultWeight;
-  } else {
-    opts.useWeight = false;
-  }
-}
-
-arangodb::aql::ShortestPathOptions const* ShortestPathNode::options()
+arangodb::traverser::ShortestPathOptions* ShortestPathNode::options()
     const {
-  return &_options;
+  return _options.get();
 }
 
 void ShortestPathNode::enhanceEngineInfo(arangodb::velocypack::Builder&) const {
@@ -225,6 +210,8 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan,
       _inStartVariable(nullptr),
       _inTargetVariable(nullptr),
       _graphObj(nullptr) {
+  _options = std::make_unique<arangodb::traverser::ShortestPathOptions>(
+      plan->getAst()->query()->trx());
   // Directions
   VPackSlice dirList = base.get("directions");
   for (auto const& it : VPackArrayIterator(dirList)) {
@@ -333,7 +320,7 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan,
 
   // Flags
   if (base.hasKey("shortestPathFlags")) {
-    _options = ShortestPathOptions(base);
+    // _options = ShortestPathOptions(base);
   }
 }
 
@@ -382,7 +369,7 @@ void ShortestPathNode::toVelocyPackHelper(VPackBuilder& nodes,
   }
 
   nodes.add(VPackValue("shortestPathFlags"));
-  _options.toVelocyPack(nodes);
+  // _options.toVelocyPack(nodes);
 
   // And close it:
   nodes.close();
@@ -391,9 +378,12 @@ void ShortestPathNode::toVelocyPackHelper(VPackBuilder& nodes,
 ExecutionNode* ShortestPathNode::clone(ExecutionPlan* plan,
                                        bool withDependencies,
                                        bool withProperties) const {
+  auto tmp =
+      std::make_unique<arangodb::traverser::ShortestPathOptions>(*_options.get());
   auto c = new ShortestPathNode(plan, _id, _vocbase, _edgeColls, _directions,
                                 _inStartVariable, _startVertexId,
-                                _inTargetVariable, _targetVertexId, _options);
+                                _inTargetVariable, _targetVertexId, tmp);
+
   if (usesVertexOutVariable()) {
     auto vertexOutVariable = _vertexOutVariable;
     if (withProperties) {
