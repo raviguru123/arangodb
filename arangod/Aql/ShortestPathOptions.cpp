@@ -51,3 +51,18 @@ void ShortestPathOptions::toVelocyPack(VPackBuilder& builder) const {
   builder.add("weightAttribute", VPackValue(weightAttribute));
   builder.add("defaultWeight", VPackValue(defaultWeight));
 }
+
+void ShortestPathOptions::buildEngineInfo(
+    arangodb::velocypack::Builder& result) const {
+  result.openObject();
+  result.add("type", VPackValue("shortest"));
+  result.add(VPackValue("handle"));
+  result.openObject();
+#warning FIXME add idxHandle->toVPack
+  result.close();
+  result.add(VPackValue("condition"));
+  result.openObject();
+#warning FIXME add idxCondition
+  result.close();
+  result.close();
+}

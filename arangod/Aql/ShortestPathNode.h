@@ -27,6 +27,8 @@
 #include "Aql/ExecutionNode.h"
 #include "Aql/Graphs.h"
 #include "Aql/ShortestPathOptions.h"
+#include "Cluster/TraverserEngineRegistry.h"
+#include "VocBase/LogicalCollection.h"
 
 #include <velocypack/Builder.h>
 
@@ -56,7 +58,7 @@ class ShortestPathNode : public ExecutionNode {
   /// @brief Internal constructor to clone the node.
  private:
   ShortestPathNode(ExecutionPlan* plan, size_t id, TRI_vocbase_t* vocbase,
-                   std::vector<std::string> const& edgeColls,
+                   std::vector<std::unique_ptr<aql::Collection>> const& edgeColls,
                    std::vector<TRI_edge_direction_e> const& directions,
                    Variable const* inStartVariable,
                    std::string const& startVertexId,
@@ -160,6 +162,25 @@ class ShortestPathNode : public ExecutionNode {
 
   void fillOptions(arangodb::traverser::ShortestPathOptions&) const;
 
+  ShortestPathOptions const* options() const;
+
+  std::vector<std::unique_ptr<aql::Collection>> const& edgeColls() const {
+    return _edgeColls;
+  }
+
+  std::vector<std::unique_ptr<aql::Collection>> const& vertexColls() const {
+    return _vertexColls;
+  }
+
+  // Nothing to do here. Just API compatibility
+  void getConditionVariables(std::vector<Variable const*>&) const {}
+
+  void enhanceEngineInfo(arangodb::velocypack::Builder&) const;
+
+  /// @brief Add a traverser engine Running on a DBServer to this node.
+  ///        The block will communicate with them (CLUSTER ONLY)
+  void addEngine(traverser::TraverserEngineID const&, ServerID const&);
+
  private:
 
   /// @brief the database
@@ -189,8 +210,11 @@ class ShortestPathNode : public ExecutionNode {
   /// @brief The directions edges are followed
   std::vector<TRI_edge_direction_e> _directions;
 
-  /// @brief the edge collection names
-  std::vector<std::string> _edgeColls;
+  /// @brief the edge collections
+  std::vector<std::unique_ptr<aql::Collection>> _edgeColls;
+
+  /// @brief the vertex collection names
+  std::vector<std::unique_ptr<aql::Collection>> _vertexColls;
 
   /// @brief our graph...
   Graph const* _graphObj;

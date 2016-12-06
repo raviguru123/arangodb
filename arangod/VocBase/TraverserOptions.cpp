@@ -35,8 +35,10 @@
 #include <velocypack/velocypack-aliases.h>
 
 using VPackHelper = arangodb::basics::VelocyPackHelper;
+using TraverserOptions = arangodb::traverser::TraverserOptions;
+using BaseTraverserOptions = arangodb::traverser::BaseTraverserOptions;
 
-arangodb::traverser::TraverserOptions::LookupInfo::LookupInfo()
+BaseTraverserOptions::LookupInfo::LookupInfo()
     : expression(nullptr),
       indexCondition(nullptr),
       conditionNeedUpdate(false),
@@ -45,13 +47,13 @@ arangodb::traverser::TraverserOptions::LookupInfo::LookupInfo()
   idxHandles.resize(1);
 };
 
-arangodb::traverser::TraverserOptions::LookupInfo::~LookupInfo() {
+BaseTraverserOptions::LookupInfo::~LookupInfo() {
   if (expression != nullptr) {
     delete expression;
   }
 }
 
-arangodb::traverser::TraverserOptions::LookupInfo::LookupInfo(
+BaseTraverserOptions::LookupInfo::LookupInfo(
     arangodb::aql::Query* query, VPackSlice const& info, VPackSlice const& shards) {
   TRI_ASSERT(shards.isArray());
   idxHandles.reserve(shards.length());
@@ -106,7 +108,7 @@ arangodb::traverser::TraverserOptions::LookupInfo::LookupInfo(
   indexCondition = new aql::AstNode(query->ast(), read); 
 }
 
-arangodb::traverser::TraverserOptions::LookupInfo::LookupInfo(
+BaseTraverserOptions::LookupInfo::LookupInfo(
     LookupInfo const& other)
     : idxHandles(other.idxHandles),
       expression(nullptr),
@@ -116,7 +118,7 @@ arangodb::traverser::TraverserOptions::LookupInfo::LookupInfo(
   expression = other.expression->clone();
 }
 
-void arangodb::traverser::TraverserOptions::LookupInfo::buildEngineInfo(
+void BaseTraverserOptions::LookupInfo::buildEngineInfo(
     VPackBuilder& result) const {
   result.openObject();
   result.add(VPackValue("handle"));
@@ -137,13 +139,10 @@ void arangodb::traverser::TraverserOptions::LookupInfo::buildEngineInfo(
   result.close();
 }
 
-arangodb::traverser::TraverserOptions::TraverserOptions(
+TraverserOptions::TraverserOptions(
     arangodb::Transaction* trx, VPackSlice const& slice)
-    : _trx(trx),
+    : BaseTraverserOptions(trx),
       _baseVertexExpression(nullptr),
-      _tmpVar(nullptr),
-      _ctx(new aql::FixedVarExpressionContext()),
-      _isCoordinator(arangodb::ServerState::instance()->isCoordinator()),
       minDepth(1),
       maxDepth(1),
       useBreadthFirst(false),
@@ -159,7 +158,7 @@ arangodb::traverser::TraverserOptions::TraverserOptions(
   std::string tmp = VPackHelper::getStringValue(obj, "uniqueVertices", "");
   if (tmp == "path") {
     uniqueVertices =
-        arangodb::traverser::TraverserOptions::UniquenessLevel::PATH;
+        TraverserOptions::UniquenessLevel::PATH;
   } else if (tmp == "global") {
     if (!useBreadthFirst) {
       THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_BAD_PARAMETER,
@@ -168,36 +167,203 @@ arangodb::traverser::TraverserOptions::TraverserOptions(
                                      "unpredictable results.");
     }
     uniqueVertices =
-        arangodb::traverser::TraverserOptions::UniquenessLevel::GLOBAL;
+        TraverserOptions::UniquenessLevel::GLOBAL;
   } else {
     uniqueVertices =
-        arangodb::traverser::TraverserOptions::UniquenessLevel::NONE;
+        TraverserOptions::UniquenessLevel::NONE;
   }
 
   tmp = VPackHelper::getStringValue(obj, "uniqueEdges", "");
   if (tmp == "none") {
     uniqueEdges =
-        arangodb::traverser::TraverserOptions::UniquenessLevel::NONE;
+        TraverserOptions::UniquenessLevel::NONE;
   } else if (tmp == "global") {
     THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_BAD_PARAMETER,
                                    "uniqueEdges: 'global' is not supported, "
                                    "due to unpredictable results. Use 'path' "
                                    "or 'none' instead");
     uniqueEdges =
-        arangodb::traverser::TraverserOptions::UniquenessLevel::GLOBAL;
+        TraverserOptions::UniquenessLevel::GLOBAL;
   } else {
     uniqueEdges =
-        arangodb::traverser::TraverserOptions::UniquenessLevel::PATH;
+        TraverserOptions::UniquenessLevel::PATH;
   }
 }
 
-arangodb::traverser::TraverserOptions::TraverserOptions(
-    arangodb::aql::Query* query, VPackSlice info, VPackSlice collections)
-    : _trx(query->trx()),
-      _baseVertexExpression(nullptr),
-      _tmpVar(nullptr),
+BaseTraverserOptions::BaseTraverserOptions(BaseTraverserOptions const& other)
+    : _trx(other._trx),
       _ctx(new aql::FixedVarExpressionContext()),
-      _isCoordinator(arangodb::ServerState::instance()->isCoordinator()),
+      _tmpVar(nullptr),
+      _isCoordinator(arangodb::ServerState::instance()->isCoordinator()) {
+  TRI_ASSERT(other._baseLookupInfos.empty());
+  TRI_ASSERT(other._tmpVar == nullptr);
+}
+
+
+BaseTraverserOptions::BaseTraverserOptions(
+    arangodb::aql::Query* query, VPackSlice info, VPackSlice collections) :
+  _trx(query->trx()),
+  _ctx(new aql::FixedVarExpressionContext()),
+  _tmpVar(nullptr),
+  _isCoordinator(arangodb::ServerState::instance()->isCoordinator()) {
+  VPackSlice read = info.get("tmpVar");
+  if (!read.isObject()) {
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_BAD_PARAMETER,
+                                   "The options require a tmpVar");
+  }
+  _tmpVar = query->ast()->variables()->createVariable(read);
+
+  read = info.get("baseLookupInfos");
+  if (!read.isArray()) {
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_BAD_PARAMETER,
+                                   "The options require a baseLookupInfos");
+  }
+
+  size_t length = read.length();
+  TRI_ASSERT(read.length() == collections.length());
+  _baseLookupInfos.reserve(length);
+  for (size_t j = 0; j < length; ++j) {
+    _baseLookupInfos.emplace_back(query, read.at(j), collections.at(j));
+  }
+}
+
+BaseTraverserOptions::~BaseTraverserOptions() {
+  delete _ctx;
+}
+
+
+void BaseTraverserOptions::toVelocyPackIndexes(VPackBuilder& builder) const {
+  builder.openObject();
+  injectVelocyPackIndexes(builder);
+  builder.close();
+}
+
+void BaseTraverserOptions::buildEngineInfo(VPackBuilder& result) const {
+  result.openObject();
+  injectEngineInfo(result);
+  result.close();
+}
+
+void BaseTraverserOptions::setVariable(aql::Variable const* variable) {
+  _tmpVar = variable;
+}
+
+void BaseTraverserOptions::addLookupInfo(aql::Ast* ast,
+                                         std::string const& collectionName,
+                                         std::string const& attributeName,
+                                         aql::AstNode* condition) {
+  traverser::TraverserOptions::LookupInfo info;
+  info.indexCondition = condition;
+  info.expression = new aql::Expression(ast, condition->clone(ast));
+  bool res = _trx->getBestIndexHandleForFilterCondition(
+        collectionName, info.indexCondition, _tmpVar, 1000,
+        info.idxHandles[0]);
+  TRI_ASSERT(res);  // Right now we have an enforced edge index which will
+                    // always fit.
+  if (!res) {
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_INTERNAL, "expected edge index not found");
+  }
+
+  // We now have to check if we need _from / _to inside the index lookup and which position
+  // it is used in. Such that the traverser can update the respective string value
+  // in-place
+  // TODO This place can be optimized.
+  if (info.idxHandles[0].isEdgeIndex()) {
+    // Special case for edge index....
+    // It serves two attributes, but can only be asked for one of them...
+    info.conditionNeedUpdate = true;
+    info.conditionMemberToUpdate = 0;
+  } else {
+    std::vector<std::vector<std::string>> fieldNames =
+        info.idxHandles[0].fieldNames();
+    size_t max = info.indexCondition->numMembers();
+    TRI_ASSERT(max <= fieldNames.size());
+    for (size_t i = 0; i < max; ++i) {
+      auto const& f = fieldNames[i];
+      if (f.size() == 1 && f[0] == attributeName) {
+        // we only work for _from and _to not _from.foo which would be null anyways...
+        info.conditionNeedUpdate = true;
+        info.conditionMemberToUpdate = i;
+        break;
+      }
+    }
+  }
+  _baseLookupInfos.emplace_back(std::move(info));
+}
+
+void BaseTraverserOptions::clearVariableValues() {
+  _ctx->clearVariableValues();
+}
+
+void BaseTraverserOptions::setVariableValue(
+    aql::Variable const* var, aql::AqlValue const value) {
+  _ctx->setVariableValue(var, value);
+}
+
+void BaseTraverserOptions::serializeVariables(
+    VPackBuilder& builder) const {
+  TRI_ASSERT(builder.isOpenArray());
+  _ctx->serializeAllVariables(_trx, builder);
+}
+
+void BaseTraverserOptions::injectVelocyPackIndexes(VPackBuilder& builder) const {
+  TRI_ASSERT(builder.isOpenObject());
+
+  // base indexes
+  builder.add("base", VPackValue(VPackValueType::Array));
+  for (auto const& it : _baseLookupInfos) {
+    for (auto const& it2 : it.idxHandles) {
+      builder.openObject();
+      it2.getIndex()->toVelocyPack(builder, false);
+      builder.close();
+    }
+  }
+  builder.close();
+}
+
+void BaseTraverserOptions::injectEngineInfo(VPackBuilder& result) const {
+  TRI_ASSERT(result.isOpenObject());
+  result.add(VPackValue("baseLookupInfos"));
+  result.openArray();
+  for (auto const& it: _baseLookupInfos) {
+    it.buildEngineInfo(result);
+  }
+  result.close();
+
+  result.add(VPackValue("tmpVar"));
+  _tmpVar->toVelocyPack(result);
+}
+
+arangodb::aql::Expression* BaseTraverserOptions::getEdgeExpression(
+    size_t cursorId) const {
+  TRI_ASSERT(!_baseLookupInfos.empty());
+  TRI_ASSERT(_baseLookupInfos.size() > cursorId);
+  return _baseLookupInfos[cursorId].expression;
+}
+
+bool BaseTraverserOptions::evaluateExpression(
+    arangodb::aql::Expression* expression, VPackSlice value) const {
+  if (expression == nullptr) {
+    return true;
+  }
+
+  TRI_ASSERT(!expression->isV8());
+  expression->setVariable(_tmpVar, value);
+  bool mustDestroy = false;
+  aql::AqlValue res = expression->execute(_trx, _ctx, mustDestroy);
+  TRI_ASSERT(res.isBoolean());
+  bool result = res.toBoolean();
+  expression->clearVariable(_tmpVar);
+  if (mustDestroy) {
+    res.destroy();
+  }
+  return result;
+}
+
+TraverserOptions::TraverserOptions(
+    arangodb::aql::Query* query, VPackSlice info, VPackSlice collections)
+    : BaseTraverserOptions(query, info, collections),
+      _baseVertexExpression(nullptr),
       minDepth(1),
       maxDepth(1),
       useBreadthFirst(false),
@@ -224,13 +390,6 @@ arangodb::traverser::TraverserOptions::TraverserOptions(
                                    "The options require a bfs");
   }
   useBreadthFirst = read.getBool();
-
-  read = info.get("tmpVar");
-  if (!read.isObject()) {
-    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_BAD_PARAMETER,
-                                   "The options require a tmpVar");
-  }
-  _tmpVar = query->ast()->variables()->createVariable(read);
 
   read = info.get("uniqueVertices");
   if (!read.isInteger()) {
@@ -274,19 +433,6 @@ arangodb::traverser::TraverserOptions::TraverserOptions(
                                      "The options require a uniqueEdges");
   }
 
-  read = info.get("baseLookupInfos");
-  if (!read.isArray()) {
-    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_BAD_PARAMETER,
-                                   "The options require a baseLookupInfos");
-  }
-
-  size_t length = read.length();
-  TRI_ASSERT(read.length() == collections.length());
-  _baseLookupInfos.reserve(length);
-  for (size_t j = 0; j < length; ++j) {
-    _baseLookupInfos.emplace_back(query, read.at(j), collections.at(j));
-  }
-
   read = info.get("depthLookupInfo");
   if (!read.isNone()) {
     if (!read.isObject()) {
@@ -294,6 +440,7 @@ arangodb::traverser::TraverserOptions::TraverserOptions(
           TRI_ERROR_BAD_PARAMETER,
           "The options require depthLookupInfo to be an object");
     }
+    size_t length = collections.length();
     _depthLookupInfo.reserve(read.length());
     for (auto const& depth : VPackObjectIterator(read)) {
       size_t d = basics::StringUtils::uint64(depth.key.copyString());
@@ -341,49 +488,43 @@ arangodb::traverser::TraverserOptions::TraverserOptions(
   }
   // Check for illegal option combination:
   TRI_ASSERT(uniqueEdges !=
-             arangodb::traverser::TraverserOptions::UniquenessLevel::GLOBAL);
+             TraverserOptions::UniquenessLevel::GLOBAL);
   TRI_ASSERT(
       uniqueVertices !=
-          arangodb::traverser::TraverserOptions::UniquenessLevel::GLOBAL ||
+          TraverserOptions::UniquenessLevel::GLOBAL ||
       useBreadthFirst);
 }
 
-arangodb::traverser::TraverserOptions::TraverserOptions(
+TraverserOptions::TraverserOptions(
     TraverserOptions const& other)
-    : _trx(other._trx),
+    : BaseTraverserOptions(other),
       _baseVertexExpression(nullptr),
-      _tmpVar(nullptr),
-      _ctx(new aql::FixedVarExpressionContext()),
-      _isCoordinator(arangodb::ServerState::instance()->isCoordinator()),
       minDepth(other.minDepth),
       maxDepth(other.maxDepth),
       useBreadthFirst(other.useBreadthFirst),
       uniqueVertices(other.uniqueVertices),
       uniqueEdges(other.uniqueEdges) {
-  TRI_ASSERT(other._baseLookupInfos.empty());
   TRI_ASSERT(other._depthLookupInfo.empty());
   TRI_ASSERT(other._vertexExpressions.empty());
-  TRI_ASSERT(other._tmpVar == nullptr);
   TRI_ASSERT(other._baseVertexExpression == nullptr);
 
   // Check for illegal option combination:
   TRI_ASSERT(uniqueEdges !=
-             arangodb::traverser::TraverserOptions::UniquenessLevel::GLOBAL);
+             TraverserOptions::UniquenessLevel::GLOBAL);
   TRI_ASSERT(
       uniqueVertices !=
-          arangodb::traverser::TraverserOptions::UniquenessLevel::GLOBAL ||
+          TraverserOptions::UniquenessLevel::GLOBAL ||
       useBreadthFirst);
 }
 
-arangodb::traverser::TraverserOptions::~TraverserOptions() {
+TraverserOptions::~TraverserOptions() {
   for (auto& pair : _vertexExpressions) {
     delete pair.second;
   }
   delete _baseVertexExpression;
-  delete _ctx;
 }
 
-void arangodb::traverser::TraverserOptions::toVelocyPack(VPackBuilder& builder) const {
+void TraverserOptions::toVelocyPack(VPackBuilder& builder) const {
   VPackObjectBuilder guard(&builder);
 
   builder.add("minDepth", VPackValue(minDepth));
@@ -391,44 +532,34 @@ void arangodb::traverser::TraverserOptions::toVelocyPack(VPackBuilder& builder) 
   builder.add("bfs", VPackValue(useBreadthFirst));
 
   switch (uniqueVertices) {
-    case arangodb::traverser::TraverserOptions::UniquenessLevel::NONE:
+    case TraverserOptions::UniquenessLevel::NONE:
       builder.add("uniqueVertices", VPackValue("none"));
       break;
-    case arangodb::traverser::TraverserOptions::UniquenessLevel::PATH:
+    case TraverserOptions::UniquenessLevel::PATH:
       builder.add("uniqueVertices", VPackValue("path"));
       break;
-    case arangodb::traverser::TraverserOptions::UniquenessLevel::GLOBAL:
+    case TraverserOptions::UniquenessLevel::GLOBAL:
       builder.add("uniqueVertices", VPackValue("global"));
       break;
   }
 
   switch (uniqueEdges) {
-    case arangodb::traverser::TraverserOptions::UniquenessLevel::NONE:
+    case TraverserOptions::UniquenessLevel::NONE:
       builder.add("uniqueEdges", VPackValue("none"));
       break;
-    case arangodb::traverser::TraverserOptions::UniquenessLevel::PATH:
+    case TraverserOptions::UniquenessLevel::PATH:
       builder.add("uniqueEdges", VPackValue("path"));
       break;
-    case arangodb::traverser::TraverserOptions::UniquenessLevel::GLOBAL:
+    case TraverserOptions::UniquenessLevel::GLOBAL:
       builder.add("uniqueEdges", VPackValue("global"));
       break;
   }
 }
 
-void arangodb::traverser::TraverserOptions::toVelocyPackIndexes(VPackBuilder& builder) const {
+void TraverserOptions::toVelocyPackIndexes(VPackBuilder& builder) const {
   VPackObjectBuilder guard(&builder);
-
-  // base indexes
-  builder.add("base", VPackValue(VPackValueType::Array));
-  for (auto const& it : _baseLookupInfos) {
-    for (auto const& it2 : it.idxHandles) {
-      builder.openObject();
-      it2.getIndex()->toVelocyPack(builder, false);
-      builder.close();
-    }
-  }
-  builder.close();
-  
+  BaseTraverserOptions::injectVelocyPackIndexes(builder);
+ 
   // depth lookup indexes
   builder.add("levels", VPackValue(VPackValueType::Object));
   for (auto const& it : _depthLookupInfo) {
@@ -446,8 +577,9 @@ void arangodb::traverser::TraverserOptions::toVelocyPackIndexes(VPackBuilder& bu
   builder.close();
 }
 
-void arangodb::traverser::TraverserOptions::buildEngineInfo(VPackBuilder& result) const {
+void TraverserOptions::buildEngineInfo(VPackBuilder& result) const {
   result.openObject();
+  BaseTraverserOptions::injectEngineInfo(result);
   result.add("minDepth", VPackValue(minDepth));
   result.add("maxDepth", VPackValue(maxDepth));
   result.add("bfs", VPackValue(useBreadthFirst));
@@ -477,13 +609,6 @@ void arangodb::traverser::TraverserOptions::buildEngineInfo(VPackBuilder& result
       result.add(VPackValue(2));
       break;
   }
-
-  result.add(VPackValue("baseLookupInfos"));
-  result.openArray();
-  for (auto const& it: _baseLookupInfos) {
-    it.buildEngineInfo(result);
-  }
-  result.close();
 
   if (!_depthLookupInfo.empty()) {
     result.add(VPackValue("depthLookupInfo"));
@@ -520,13 +645,10 @@ void arangodb::traverser::TraverserOptions::buildEngineInfo(VPackBuilder& result
     result.close();
   }
 
-  result.add(VPackValue("tmpVar"));
-  _tmpVar->toVelocyPack(result);
-
   result.close();
 }
 
-bool arangodb::traverser::TraverserOptions::vertexHasFilter(
+bool TraverserOptions::vertexHasFilter(
     size_t depth) const {
   if (_baseVertexExpression != nullptr) {
     return true;
@@ -534,7 +656,7 @@ bool arangodb::traverser::TraverserOptions::vertexHasFilter(
   return _vertexExpressions.find(depth) != _vertexExpressions.end();
 }
 
-bool arangodb::traverser::TraverserOptions::evaluateEdgeExpression(
+bool TraverserOptions::evaluateEdgeExpression(
     arangodb::velocypack::Slice edge, arangodb::velocypack::Slice vertex,
     size_t depth, size_t cursorId) const {
   if (_isCoordinator) {
@@ -550,44 +672,33 @@ bool arangodb::traverser::TraverserOptions::evaluateEdgeExpression(
     TRI_ASSERT(specific->second.size() > cursorId);
     expression = specific->second[cursorId].expression;
   } else {
-    TRI_ASSERT(!_baseLookupInfos.empty());
-    TRI_ASSERT(_baseLookupInfos.size() > cursorId);
-    expression = _baseLookupInfos[cursorId].expression;
+    expression = getEdgeExpression(cursorId);
   }
-  if (expression != nullptr) {
-    TRI_ASSERT(!expression->isV8());
-    expression->setVariable(_tmpVar, edge);
-  
-    VPackValueLength vidLength;
-    char const* vid = vertex.getString(vidLength);
-
-    // inject _from/_to value
-    auto node = expression->nodeForModification();
-
-    TRI_ASSERT(node->numMembers() > 0);
-    auto dirCmp = node->getMemberUnchecked(node->numMembers() - 1);
-    TRI_ASSERT(dirCmp->type == aql::NODE_TYPE_OPERATOR_BINARY_EQ); 
-    TRI_ASSERT(dirCmp->numMembers() == 2);
-
-    auto idNode = dirCmp->getMemberUnchecked(1);
-    TRI_ASSERT(idNode->type == aql::NODE_TYPE_VALUE);
-    TRI_ASSERT(idNode->isValueType(aql::VALUE_TYPE_STRING));
-    idNode->stealComputedValue();
-    idNode->setStringValue(vid, vidLength);
-
-    bool mustDestroy = false;
-    aql::AqlValue res = expression->execute(_trx, _ctx, mustDestroy);
-    expression->clearVariable(_tmpVar);
-    bool result = res.toBoolean();
-    if (mustDestroy) {
-      res.destroy();
-    }
-    return result;
+  if (expression == nullptr) {
+    return true;
   }
-  return true;
+
+  VPackValueLength vidLength;
+  char const* vid = vertex.getString(vidLength);
+
+  // inject _from/_to value
+  auto node = expression->nodeForModification();
+
+  TRI_ASSERT(node->numMembers() > 0);
+  auto dirCmp = node->getMemberUnchecked(node->numMembers() - 1);
+  TRI_ASSERT(dirCmp->type == aql::NODE_TYPE_OPERATOR_BINARY_EQ); 
+  TRI_ASSERT(dirCmp->numMembers() == 2);
+
+  auto idNode = dirCmp->getMemberUnchecked(1);
+  TRI_ASSERT(idNode->type == aql::NODE_TYPE_VALUE);
+  TRI_ASSERT(idNode->isValueType(aql::VALUE_TYPE_STRING));
+  idNode->stealComputedValue();
+  idNode->setStringValue(vid, vidLength);
+
+  return evaluateExpression(expression, edge);
 }
 
-bool arangodb::traverser::TraverserOptions::evaluateVertexExpression(
+bool TraverserOptions::evaluateVertexExpression(
     arangodb::velocypack::Slice vertex, size_t depth) const {
   arangodb::aql::Expression* expression = nullptr;
 
@@ -599,25 +710,11 @@ bool arangodb::traverser::TraverserOptions::evaluateVertexExpression(
     expression = _baseVertexExpression;
   }
 
-  if (expression == nullptr) {
-    return true;
-  }
-
-  TRI_ASSERT(!expression->isV8());
-  expression->setVariable(_tmpVar, vertex);
-  bool mustDestroy = false;
-  aql::AqlValue res = expression->execute(_trx, _ctx, mustDestroy);
-  TRI_ASSERT(res.isBoolean());
-  bool result = res.toBoolean();
-  expression->clearVariable(_tmpVar);
-  if (mustDestroy) {
-    res.destroy();
-  }
-  return result;
+  return evaluateExpression(expression, vertex);
 }
 
 arangodb::traverser::EdgeCursor*
-arangodb::traverser::TraverserOptions::nextCursor(ManagedDocumentResult* mmdr,
+TraverserOptions::nextCursor(ManagedDocumentResult* mmdr,
                                                   VPackSlice vertex,
                                                   size_t depth) const {
   if (_isCoordinator) {
@@ -635,7 +732,7 @@ arangodb::traverser::TraverserOptions::nextCursor(ManagedDocumentResult* mmdr,
 }
 
 arangodb::traverser::EdgeCursor*
-arangodb::traverser::TraverserOptions::nextCursorLocal(ManagedDocumentResult* mmdr,
+TraverserOptions::nextCursorLocal(ManagedDocumentResult* mmdr,
     VPackSlice vertex, size_t depth, std::vector<LookupInfo>& list) const {
   TRI_ASSERT(mmdr != nullptr);
   auto allCursor = std::make_unique<SingleServerEdgeCursor>(mmdr, _trx, list.size());
@@ -668,30 +765,14 @@ arangodb::traverser::TraverserOptions::nextCursorLocal(ManagedDocumentResult* mm
 }
 
 arangodb::traverser::EdgeCursor*
-arangodb::traverser::TraverserOptions::nextCursorCoordinator(
+TraverserOptions::nextCursorCoordinator(
     VPackSlice vertex, size_t depth) const {
   TRI_ASSERT(_traverser != nullptr);
   auto cursor = std::make_unique<ClusterEdgeCursor>(vertex, depth, _traverser);
   return cursor.release();
 }
 
-void arangodb::traverser::TraverserOptions::clearVariableValues() {
-  _ctx->clearVariableValues();
-}
-
-void arangodb::traverser::TraverserOptions::setVariableValue(
-    aql::Variable const* var, aql::AqlValue const value) {
-  _ctx->setVariableValue(var, value);
-}
-
-void arangodb::traverser::TraverserOptions::linkTraverser(
+void TraverserOptions::linkTraverser(
     arangodb::traverser::ClusterTraverser* trav) {
   _traverser = trav;
 }
-
-void arangodb::traverser::TraverserOptions::serializeVariables(
-    VPackBuilder& builder) const {
-  TRI_ASSERT(builder.isOpenArray());
-  _ctx->serializeAllVariables(_trx, builder);
-}
-

@@ -44,6 +44,10 @@ struct ShortestPathOptions {
 
   void toVelocyPack(arangodb::velocypack::Builder&) const;
 
+  /// @brief Build a velocypack containing all relevant information
+  ///        for DBServer traverser engines.
+  void buildEngineInfo(arangodb::velocypack::Builder&) const;
+
   std::string weightAttribute;
   double defaultWeight;
 };

@@ -126,7 +126,8 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan, size_t id,
                                        msg);
       }
       _graphInfo.add(VPackValue(eColName));
-      _edgeColls.emplace_back(std::move(eColName));
+      _edgeColls.emplace_back(std::make_unique<aql::Collection>(
+          eColName, _vocbase, TRI_TRANSACTION_READ));
     }
 
     _graphInfo.close();
@@ -150,7 +151,8 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan, size_t id,
         _directions.reserve(length);
 
         for (const auto& n : eColls) {
-          _edgeColls.push_back(n);
+          _edgeColls.emplace_back(std::make_unique<aql::Collection>(
+              n, _vocbase, TRI_TRANSACTION_READ));
           _directions.emplace_back(baseDirection);
         }
       }
@@ -163,7 +165,7 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan, size_t id,
 
 ShortestPathNode::ShortestPathNode(ExecutionPlan* plan, size_t id,
                                    TRI_vocbase_t* vocbase,
-                                   std::vector<std::string> const& edgeColls,
+                                   std::vector<std::unique_ptr<aql::Collection>> const& edgeColls,
                                    std::vector<TRI_edge_direction_e> const& directions,
                                    Variable const* inStartVariable,
                                    std::string const& startVertexId,
@@ -184,9 +186,12 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan, size_t id,
 
   _graphInfo.openArray();
   for (auto const& it : edgeColls) {
-    _edgeColls.emplace_back(it);
-    _graphInfo.add(VPackValue(it));
+    // Collections cannot be copied. So we need to create new ones to prevent leaks
+    _edgeColls.emplace_back(std::make_unique<aql::Collection>(
+        it->getName(), _vocbase, TRI_TRANSACTION_READ));
+    _graphInfo.add(VPackValue(it->getName()));
   }
+
   _graphInfo.close();
 }
 
@@ -198,6 +203,17 @@ void ShortestPathNode::fillOptions(arangodb::traverser::ShortestPathOptions& opt
   } else {
     opts.useWeight = false;
   }
+}
+
+arangodb::aql::ShortestPathOptions const* ShortestPathNode::options()
+    const {
+  return &_options;
+}
+
+void ShortestPathNode::enhanceEngineInfo(arangodb::velocypack::Builder&) const {
+}
+
+void ShortestPathNode::addEngine(traverser::TraverserEngineID const&, ServerID const&) {
 }
 
 ShortestPathNode::ShortestPathNode(ExecutionPlan* plan,
@@ -276,8 +292,9 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan,
       }
 
       auto eColls = _graphObj->edgeCollections();
-      for (auto const& n : eColls) {
-        _edgeColls.push_back(n);
+      for (const auto& n : eColls) {
+        _edgeColls.emplace_back(std::make_unique<aql::Collection>(
+            n, _vocbase, TRI_TRANSACTION_READ));
       }
     } else {
       THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_QUERY_BAD_JSON_PLAN,
@@ -295,7 +312,9 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan,
         THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_QUERY_BAD_JSON_PLAN,
                                        "graph has to be an array of strings.");
       }
-      _edgeColls.emplace_back(it.copyString());
+      std::string e = arangodb::basics::VelocyPackHelper::getStringValue(it, "");
+      _edgeColls.emplace_back(
+          std::make_unique<aql::Collection>(e, _vocbase, TRI_TRANSACTION_READ));
     }
     if (_edgeColls.empty()) {
       THROW_ARANGO_EXCEPTION_MESSAGE(
@@ -406,19 +425,10 @@ double ShortestPathNode::estimateCost(size_t& nrItems) const {
   size_t incoming = 0;
   double depCost = _dependencies.at(0)->getCost(incoming);
   auto trx = _plan->getAst()->query()->trx();
-  auto collections = _plan->getAst()->query()->collections();
   size_t edgesCount = 0;
   double nodesEstimate = 0;
 
-  TRI_ASSERT(collections != nullptr);
-
-  for (auto const& it : _edgeColls) {
-    auto collection = collections->get(it);
-
-    if (collection == nullptr) {
-      THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_INTERNAL,
-                                     "unexpected pointer for collection");
-    }
+  for (auto const& collection : _edgeColls) {
     size_t edges = collection->count();
 
     auto indexes = trx->indexesForCollection(collection->name);

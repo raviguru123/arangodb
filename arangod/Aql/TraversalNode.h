@@ -296,7 +296,7 @@ class TraversalNode : public ExecutionNode {
   /// @brief The directions edges are followed
   std::vector<TRI_edge_direction_e> _directions;
 
-  /// @brief the edge collection names
+  /// @brief the edge collections
   std::vector<std::unique_ptr<aql::Collection>> _edgeColls;
 
   /// @brief the vertex collection names

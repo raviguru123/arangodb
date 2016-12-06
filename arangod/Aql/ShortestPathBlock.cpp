@@ -364,7 +364,7 @@ ShortestPathBlock::ShortestPathBlock(ExecutionEngine* engine,
 
   for (size_t j = 0; j < count; ++j) {
     auto info = std::make_unique<arangodb::traverser::EdgeCollectionInfo>(
-        _trx, ep->_edgeColls[j], ep->_directions[j], _opts.weightAttribute,
+        _trx, ep->_edgeColls[j]->getName(), ep->_directions[j], _opts.weightAttribute,
         _opts.defaultWeight);
     _collectionInfos.emplace_back(info.get());
     info.release();
