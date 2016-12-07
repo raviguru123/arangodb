@@ -59,19 +59,19 @@ class RocksDBIterator final : public IndexIterator {
   friend class RocksDBIndex;
 
  public:
-  RocksDBIterator(LogicalCollection* collection, Transaction* trx, 
+  RocksDBIterator(LogicalCollection* collection, Transaction* trx,
                   ManagedDocumentResult* mmdr,
                   arangodb::RocksDBIndex const* index,
                   arangodb::PrimaryIndex* primaryIndex,
                   rocksdb::OptimisticTransactionDB* db,
-                  bool reverse, 
+                  bool reverse,
                   arangodb::velocypack::Slice const& left,
                   arangodb::velocypack::Slice const& right);
 
   ~RocksDBIterator() = default;
 
  public:
-  
+
   char const* typeName() const override { return "rocksdb-index-iterator"; }
 
   /// @brief Get the next element in the index
@@ -79,7 +79,7 @@ class RocksDBIterator final : public IndexIterator {
 
   /// @brief Reset the cursor
   void reset() override;
- 
+
  private:
   arangodb::PrimaryIndex* _primaryIndex;
   rocksdb::OptimisticTransactionDB* _db;
@@ -105,9 +105,9 @@ class RocksDBIndex final : public PathBasedIndex {
   IndexType type() const override {
     return Index::TRI_IDX_TYPE_ROCKSDB_INDEX;
   }
-  
+
   bool allowExpansion() const override { return true; }
-  
+
   bool isPersistent() const override { return true; }
   bool canBeDropped() const override { return true; }
 
@@ -119,7 +119,7 @@ class RocksDBIndex final : public PathBasedIndex {
 
   void toVelocyPack(VPackBuilder&, bool) const override;
   void toVelocyPackFigures(VPackBuilder&) const override;
-  
+
   static constexpr size_t minimalPrefixSize() {
     return sizeof(TRI_voc_tick_t);
   }
@@ -127,13 +127,13 @@ class RocksDBIndex final : public PathBasedIndex {
   static constexpr size_t keyPrefixSize() {
     return sizeof(TRI_voc_tick_t) + sizeof(TRI_voc_cid_t) + sizeof(TRI_idx_iid_t);
   }
-  
+
   static std::string buildPrefix(TRI_voc_tick_t databaseId) {
     std::string value;
     value.append(reinterpret_cast<char const*>(&databaseId), sizeof(TRI_voc_tick_t));
     return value;
   }
-  
+
   static std::string buildPrefix(TRI_voc_tick_t databaseId, TRI_voc_cid_t collectionId) {
     std::string value;
     value.append(reinterpret_cast<char const*>(&databaseId), sizeof(TRI_voc_tick_t));
@@ -162,7 +162,7 @@ class RocksDBIndex final : public PathBasedIndex {
   ///
   /// Warning: who ever calls this function is responsible for destroying
   /// the velocypack::Slice and the RocksDBIterator* results
-  RocksDBIterator* lookup(arangodb::Transaction*, 
+  RocksDBIterator* lookup(arangodb::Transaction*,
                           ManagedDocumentResult* mmdr,
                           arangodb::velocypack::Slice const,
                           bool reverse) const;
@@ -198,7 +198,7 @@ class RocksDBIndex final : public PathBasedIndex {
   void matchAttributes(
       arangodb::aql::AstNode const*, arangodb::aql::Variable const*,
       std::unordered_map<size_t, std::vector<arangodb::aql::AstNode const*>>&,
-      size_t& values, 
+      size_t& values,
       std::unordered_set<std::string>& nonNullAttributes,
       bool) const;
 

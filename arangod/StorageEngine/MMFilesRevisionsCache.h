@@ -25,9 +25,11 @@
 #define ARANGOD_STORAGE_ENGINE_MMFILES_REVISIONS_CACHE_H 1
 
 #include "Basics/Common.h"
-#include "Basics/AssocUnique.h"
+//#include "Basics/AssocUnique.h"
 #include "Basics/ReadWriteLock.h"
+#include "Basics/RocksDBMap.h"
 #include "StorageEngine/MMFilesDocumentPosition.h"
+#include "VocBase/LogicalCollection.h"
 #include "VocBase/voc-types.h"
 
 struct TRI_df_marker_t;
@@ -36,26 +38,32 @@ namespace arangodb {
 
 class MMFilesRevisionsCache {
  public:
-  MMFilesRevisionsCache();
+  typedef arangodb::basics::RocksDBMap<TRI_voc_rid_t, MMFilesDocumentPosition>
+      Cache;
+  MMFilesRevisionsCache(LogicalCollection*);
   ~MMFilesRevisionsCache();
-  
+
  public:
   void sizeHint(int64_t hint);
   void clear();
   MMFilesDocumentPosition lookup(TRI_voc_rid_t revisionId) const;
-  void insert(TRI_voc_rid_t revisionId, uint8_t const* dataptr, TRI_voc_fid_t fid, bool isInWal, bool shouldLock);
-  void update(TRI_voc_rid_t revisionId, uint8_t const* dataptr, TRI_voc_fid_t fid, bool isInWal);
-  bool updateConditional(TRI_voc_rid_t revisionId, TRI_df_marker_t const* oldPosition, TRI_df_marker_t const* newPosition, TRI_voc_fid_t newFid, bool isInWal);
+  void insert(TRI_voc_rid_t revisionId, uint8_t const* dataptr,
+              TRI_voc_fid_t fid, bool isInWal, bool shouldLock);
+  void update(TRI_voc_rid_t revisionId, uint8_t const* dataptr,
+              TRI_voc_fid_t fid, bool isInWal);
+  bool updateConditional(TRI_voc_rid_t revisionId,
+                         TRI_df_marker_t const* oldPosition,
+                         TRI_df_marker_t const* newPosition,
+                         TRI_voc_fid_t newFid, bool isInWal);
   void remove(TRI_voc_rid_t revisionId);
   MMFilesDocumentPosition fetchAndRemove(TRI_voc_rid_t revisionId);
 
  private:
-  mutable arangodb::basics::ReadWriteLock _lock; 
-  
-  arangodb::basics::AssocUnique<TRI_voc_rid_t, MMFilesDocumentPosition> _positions;
+  mutable arangodb::basics::ReadWriteLock _lock;
+
+  Cache _positions;
 };
 
-} // namespace arangodb
+}  // namespace arangodb
 
 #endif
-
