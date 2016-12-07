@@ -3733,6 +3733,8 @@ void arangodb::aql::optimizeTraversalsRule(Optimizer* opt,
 void arangodb::aql::prepareTraversalsRule(Optimizer* opt,
                                           ExecutionPlan* plan,
                                           Optimizer::Rule const* rule) {
+    opt->addPlan(plan, rule, false);
+  /*
   SmallVector<ExecutionNode*>::allocator_type::arena_type a;
   SmallVector<ExecutionNode*> tNodes{a};
   plan->findNodesOfType(tNodes, EN::TRAVERSAL, true);
@@ -3751,6 +3753,7 @@ void arangodb::aql::prepareTraversalsRule(Optimizer* opt,
   }
 
   opt->addPlan(plan, rule, true);
+  */
 }
 
 /// @brief pulls out simple subqueries and merges them with the level above

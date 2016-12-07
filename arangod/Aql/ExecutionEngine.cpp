@@ -208,6 +208,10 @@ struct Instanciator final : public WalkerWorker<ExecutionNode> {
         // We have to prepare the options before we build the block
         static_cast<TraversalNode*>(en)->prepareOptions();
       }
+      if (en->getType() == ExecutionNode::SHORTEST_PATH) {
+        // We have to prepare the options before we build the block
+        static_cast<ShortestPathNode*>(en)->prepareOptions();
+      }
       std::unique_ptr<ExecutionBlock> eb(CreateBlock(engine, en, cache));
 
       if (eb == nullptr) {
@@ -746,6 +750,10 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
   ///        traversal block.
   template<typename Node>
   void buildTraverserEnginesForNode(Node* en) {
+    // We have to initialize all options. After this point the node
+    // is not cloneable any more.
+    // Required prior to creation of engines.
+    en->prepareOptions();
     VPackBuilder optsBuilder;
     auto opts = en->options();
     opts->buildEngineInfo(optsBuilder);
@@ -1035,13 +1043,8 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
     }
 
     if (nodeType == ExecutionNode::TRAVERSAL) {
-      // We have to initialize all options. After this point the node
-      // is not cloneable any more.
-      // Required prior to creation of engines.
-      auto tmp = static_cast<TraversalNode*>(en);
-      tmp->prepareOptions();
       // Now build traverser engines.
-      buildTraverserEnginesForNode<TraversalNode>(tmp);
+      buildTraverserEnginesForNode<TraversalNode>(static_cast<TraversalNode*>(en));
     } else if (nodeType == ExecutionNode::SHORTEST_PATH) {
       buildTraverserEnginesForNode<ShortestPathNode>(static_cast<ShortestPathNode*>(en));
     }

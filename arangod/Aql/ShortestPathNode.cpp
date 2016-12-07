@@ -86,12 +86,44 @@ ShortestPathNode::ShortestPathNode(
       _inStartVariable(nullptr),
       _inTargetVariable(nullptr),
       _graphObj(nullptr),
+      _tmpObjVariable(_plan->getAst()->variables()->createTemporaryVariable()),
+      _tmpObjVarNode(_plan->getAst()->createNodeReference(_tmpObjVariable)),
+      _tmpIdNode(_plan->getAst()->createNodeValueString("", 0)),
+      _fromCondition(nullptr),
+      _toCondition(nullptr),
+      _optionsBuild(false),
       _options(options.release()) {
 
   TRI_ASSERT(_vocbase != nullptr);
   TRI_ASSERT(start != nullptr);
   TRI_ASSERT(target != nullptr);
   TRI_ASSERT(graph != nullptr);
+  TRI_ASSERT(_options.get() != nullptr);
+
+  auto ast = _plan->getAst();
+  // Let us build the conditions on _from and _to. Just in case we need them.
+  {
+    auto const* access = ast->createNodeAttributeAccess(
+        _tmpObjVarNode, StaticStrings::FromString.c_str(),
+        StaticStrings::FromString.length());
+    auto const* condition = ast->createNodeBinaryOperator(
+        NODE_TYPE_OPERATOR_BINARY_EQ, access, _tmpIdNode);
+    _fromCondition = ast->createNodeNaryOperator(NODE_TYPE_OPERATOR_NARY_AND);
+    _fromCondition->addMember(condition);
+
+  }
+  TRI_ASSERT(_fromCondition != nullptr);
+
+  {
+    auto const* access = ast->createNodeAttributeAccess(
+        _tmpObjVarNode, StaticStrings::ToString.c_str(),
+        StaticStrings::ToString.length());
+    auto const* condition = ast->createNodeBinaryOperator(
+        NODE_TYPE_OPERATOR_BINARY_EQ, access, _tmpIdNode);
+    _toCondition = ast->createNodeNaryOperator(NODE_TYPE_OPERATOR_NARY_AND);
+    _toCondition->addMember(condition);
+  }
+  TRI_ASSERT(_toCondition != nullptr);
 
   TRI_edge_direction_e baseDirection = parseDirection(direction);
 
@@ -178,6 +210,12 @@ ShortestPathNode::ShortestPathNode(
       _targetVertexId(targetVertexId),
       _directions(directions),
       _graphObj(nullptr),
+      _tmpObjVariable(nullptr),
+      _tmpObjVarNode(nullptr),
+      _tmpIdNode(nullptr),
+      _fromCondition(nullptr),
+      _toCondition(nullptr),
+      _optionsBuild(false),
       _options(options.release()) {
   _graphInfo.openArray();
   for (auto const& it : edgeColls) {
@@ -209,7 +247,13 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan,
       _edgeOutVariable(nullptr),
       _inStartVariable(nullptr),
       _inTargetVariable(nullptr),
-      _graphObj(nullptr) {
+      _graphObj(nullptr),
+      _tmpObjVariable(nullptr),
+      _tmpObjVarNode(nullptr),
+      _tmpIdNode(nullptr),
+      _fromCondition(nullptr),
+      _toCondition(nullptr),
+      _optionsBuild(false) {
   _options = std::make_unique<arangodb::traverser::ShortestPathOptions>(
       plan->getAst()->query()->trx());
   // Directions
@@ -322,6 +366,25 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan,
   if (base.hasKey("shortestPathFlags")) {
     // _options = ShortestPathOptions(base);
   }
+
+  // Temporary Filter Objects
+  TRI_ASSERT(base.hasKey("tmpObjVariable"));
+  _tmpObjVariable = varFromVPack(plan->getAst(), base, "tmpObjVariable");
+
+  TRI_ASSERT(base.hasKey("tmpObjVarNode"));
+  _tmpObjVarNode = new AstNode(plan->getAst(), base.get("tmpObjVarNode"));
+
+  TRI_ASSERT(base.hasKey("tmpIdNode"));
+  _tmpIdNode = new AstNode(plan->getAst(), base.get("tmpIdNode"));
+
+  // Filter Condition Parts
+  TRI_ASSERT(base.hasKey("fromCondition"));
+  _fromCondition = new AstNode(plan->getAst(), base.get("fromCondition"));
+
+  TRI_ASSERT(base.hasKey("toCondition"));
+  _toCondition = new AstNode(plan->getAst(), base.get("toCondition"));
+
+
 }
 
 void ShortestPathNode::toVelocyPackHelper(VPackBuilder& nodes,
@@ -368,8 +431,31 @@ void ShortestPathNode::toVelocyPackHelper(VPackBuilder& nodes,
     edgeOutVariable()->toVelocyPack(nodes);
   }
 
-  nodes.add(VPackValue("shortestPathFlags"));
+  // nodes.add(VPackValue("shortestPathFlags"));
   // _options.toVelocyPack(nodes);
+
+  // Traversal Filter Conditions
+
+  TRI_ASSERT(_tmpObjVariable != nullptr);
+  nodes.add(VPackValue("tmpObjVariable"));
+  _tmpObjVariable->toVelocyPack(nodes);
+
+  TRI_ASSERT(_tmpObjVarNode != nullptr);
+  nodes.add(VPackValue("tmpObjVarNode"));
+  _tmpObjVarNode->toVelocyPack(nodes, verbose);
+
+  TRI_ASSERT(_tmpIdNode != nullptr);
+  nodes.add(VPackValue("tmpIdNode"));
+  _tmpIdNode->toVelocyPack(nodes, verbose);
+
+  TRI_ASSERT(_fromCondition != nullptr);
+  nodes.add(VPackValue("fromCondition"));
+  _fromCondition->toVelocyPack(nodes, verbose);
+
+  TRI_ASSERT(_toCondition != nullptr);
+  nodes.add(VPackValue("toCondition"));
+  _toCondition->toVelocyPack(nodes, verbose);
+
 
   // And close it:
   nodes.close();
@@ -404,6 +490,15 @@ ExecutionNode* ShortestPathNode::clone(ExecutionPlan* plan,
     c->setEdgeOutput(edgeOutVariable);
   }
 
+  // Temporary Filter Objects
+  c->_tmpObjVariable = _tmpObjVariable;
+  c->_tmpObjVarNode = _tmpObjVarNode;
+  c->_tmpIdNode = _tmpIdNode;
+
+  // Filter Condition Parts
+  c->_fromCondition = _fromCondition->clone(_plan->getAst());
+  c->_toCondition = _toCondition->clone(_plan->getAst());
+ 
   cloneHelper(c, plan, withDependencies, withProperties);
 
   return static_cast<ExecutionNode*>(c);
@@ -450,4 +545,38 @@ double ShortestPathNode::estimateCost(size_t& nrItems) const {
   }
   nrItems = edgesCount + static_cast<size_t>(std::log2(nodesEstimate) * nodesEstimate);
   return depCost + nrItems;
+}
+
+void ShortestPathNode::prepareOptions() {
+  if (_optionsBuild) {
+    return;
+  }
+
+  size_t numEdgeColls = _edgeColls.size();
+  TRI_ASSERT(!_optionsBuild);
+  _options->setVariable(_tmpObjVariable);
+
+  Ast* ast = _plan->getAst();
+  // FIXME: _options->_baseLookupInfos.reserve(numEdgeColls);
+  // Compute Edge Indexes. First default indexes:
+  for (size_t i = 0; i < numEdgeColls; ++i) {
+    switch (_directions[i]) {
+      case TRI_EDGE_IN:
+        _options->addLookupInfo(
+            ast, _edgeColls[i]->getName(), StaticStrings::ToString,
+            _toCondition);
+        break;
+      case TRI_EDGE_OUT:
+        _options->addLookupInfo(
+            ast, _edgeColls[i]->getName(), StaticStrings::FromString,
+            _fromCondition);
+        break;
+      case TRI_EDGE_ANY:
+        TRI_ASSERT(false);
+        break;
+    }
+  }
+
+  // TODO add reverse direction.
+  _optionsBuild = true;
 }
