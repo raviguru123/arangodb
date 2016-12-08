@@ -59,6 +59,66 @@ class GraphNode : public ExecutionNode {
  public:
   virtual ~GraphNode() {}
 
+  /// @brief flag if smart search can be used (Enterprise only)
+  bool isSmart() const {
+    return _isSmart;
+  }
+
+  /// @brief return the database
+  TRI_vocbase_t* vocbase() const { return _vocbase; }
+
+  /// @brief return the vertex out variable
+  Variable const* vertexOutVariable() const { return _vertexOutVariable; }
+
+  /// @brief checks if the vertex out variable is used
+  bool usesVertexOutVariable() const { return _vertexOutVariable != nullptr; }
+
+  /// @brief set the vertex out variable
+  void setVertexOutput(Variable const* outVar) { _vertexOutVariable = outVar; }
+
+
+  /// @brief return the edge out variable
+  Variable const* edgeOutVariable() const { return _edgeOutVariable; }
+
+  /// @brief checks if the edge out variable is used
+  bool usesEdgeOutVariable() const { return _edgeOutVariable != nullptr; }
+
+  /// @brief set the edge out variable
+  void setEdgeOutput(Variable const* outVar) { _edgeOutVariable = outVar; }
+
+
+  std::vector<std::unique_ptr<aql::Collection>> const& edgeColls() const {
+    return _edgeColls;
+  }
+
+  std::vector<std::unique_ptr<aql::Collection>> const& vertexColls() const {
+    return _vertexColls;
+  }
+
+  bool allDirectionsEqual() const;
+
+  AstNode* getTemporaryRefNode() const;
+
+  Variable const* getTemporaryVariable() const;
+ 
+  void enhanceEngineInfo(arangodb::velocypack::Builder&) const;
+
+  /// @brief Compute the traversal options containing the expressions
+  ///        MUST! be called after optimization and before creation
+  ///        of blocks.
+  virtual void prepareOptions() = 0;
+
+  /// @brief Add a traverser engine Running on a DBServer to this node.
+  ///        The block will communicate with them (CLUSTER ONLY)
+  void addEngine(traverser::TraverserEngineID const&, ServerID const&);
+  
+  /// @brief Returns a reference to the engines. (CLUSTER ONLY)
+  std::unordered_map<ServerID, traverser::TraverserEngineID> const* engines()
+      const {
+    TRI_ASSERT(arangodb::ServerState::instance()->isCoordinator());
+    return &_engines;
+  }
+
   ////////////////////////////////////////////////////////////////////////////////
   /// SECTION Shared subclass variables
   ////////////////////////////////////////////////////////////////////////////////

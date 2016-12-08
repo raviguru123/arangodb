@@ -118,12 +118,6 @@ arangodb::traverser::ShortestPathOptions* ShortestPathNode::options()
   return static_cast<traverser::ShortestPathOptions*>(_options.get());
 }
 
-void ShortestPathNode::enhanceEngineInfo(arangodb::velocypack::Builder&) const {
-}
-
-void ShortestPathNode::addEngine(traverser::TraverserEngineID const&, ServerID const&) {
-}
-
 ShortestPathNode::ShortestPathNode(ExecutionPlan* plan,
                                    arangodb::velocypack::Slice const& base)
     : GraphNode(plan, base),

@@ -96,11 +96,6 @@ class TraversalNode : public GraphNode {
   /// @brief return the type of the node
   NodeType getType() const override final { return TRAVERSAL; }
 
-  /// @brief flag, if smart traversal (enterprise edition only!) is done
-  bool isSmart() const {
-    return _isSmart;
-  }
-
   /// @brief export to VelocyPack
   void toVelocyPackHelper(arangodb::velocypack::Builder&,
                           bool) const override final;
@@ -165,27 +160,6 @@ class TraversalNode : public GraphNode {
     return vars;
   }
 
-  /// @brief return the database
-  TRI_vocbase_t* vocbase() const { return _vocbase; }
-
-  /// @brief return the vertex out variable
-  Variable const* vertexOutVariable() const { return _vertexOutVariable; }
-
-  /// @brief checks if the vertex out variable is used
-  bool usesVertexOutVariable() const { return _vertexOutVariable != nullptr; }
-
-  /// @brief set the vertex out variable
-  void setVertexOutput(Variable const* outVar) { _vertexOutVariable = outVar; }
-
-  /// @brief return the edge out variable
-  Variable const* edgeOutVariable() const { return _edgeOutVariable; }
-
-  /// @brief checks if the edge out variable is used
-  bool usesEdgeOutVariable() const { return _edgeOutVariable != nullptr; }
-
-  /// @brief set the edge out variable
-  void setEdgeOutput(Variable const* outVar) { _edgeOutVariable = outVar; }
-
   /// @brief checks if the path out variable is used
   bool usesPathOutVariable() const { return _pathOutVariable != nullptr; }
 
@@ -199,14 +173,6 @@ class TraversalNode : public GraphNode {
   Variable const* inVariable() const { return _inVariable; }
 
   std::string const getStartVertex() const { return _vertexId; }
-
-  std::vector<std::unique_ptr<aql::Collection>> const& edgeColls() const {
-    return _edgeColls;
-  }
-
-  std::vector<std::unique_ptr<aql::Collection>> const& vertexColls() const {
-    return _vertexColls;
-  }
 
   /// @brief remember the condition to execute for early traversal abortion.
   void setCondition(Condition* condition);
@@ -230,34 +196,14 @@ class TraversalNode : public GraphNode {
   ///        The condition will contain the local variable for it's accesses.
   void registerGlobalCondition(bool, AstNode const*);
 
-  bool allDirectionsEqual() const;
-
   traverser::TraverserOptions* options() const;
 
-  AstNode* getTemporaryRefNode() const;
-
-  Variable const* getTemporaryVariable() const;
-
   void getConditionVariables(std::vector<Variable const*>&) const;
-
-  void enhanceEngineInfo(arangodb::velocypack::Builder&) const;
 
   /// @brief Compute the traversal options containing the expressions
   ///        MUST! be called after optimization and before creation
   ///        of blocks.
-  void prepareOptions();
-
-  /// @brief Add a traverser engine Running on a DBServer to this node.
-  ///        The block will communicate with them (CLUSTER ONLY)
-  void addEngine(traverser::TraverserEngineID const&, ServerID const&);
-
-  
-  /// @brief Returns a reference to the engines. (CLUSTER ONLY)
-  std::unordered_map<ServerID, traverser::TraverserEngineID> const* engines()
-      const {
-    TRI_ASSERT(arangodb::ServerState::instance()->isCoordinator());
-    return &_engines;
-  }
+  void prepareOptions() override;
 
  private:
 

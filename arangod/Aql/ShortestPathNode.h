@@ -64,11 +64,6 @@ class ShortestPathNode : public GraphNode {
   /// @brief return the type of the node
   NodeType getType() const override final { return SHORTEST_PATH; }
 
-  /// @brief flag if smart search can be used (Enterprise only)
-  bool isSmart() const {
-    return false;
-  }
-
   /// @brief export to VelocyPack
   void toVelocyPackHelper(arangodb::velocypack::Builder&,
                           bool) const override final;
@@ -99,24 +94,6 @@ class ShortestPathNode : public GraphNode {
   Variable const* targetInVariable() const { return _inTargetVariable; }
 
   std::string const getTargetVertex() const { return _targetVertexId; }
-
-  /// @brief return the vertex out variable
-  Variable const* vertexOutVariable() const { return _vertexOutVariable; }
-
-  /// @brief checks if the vertex out variable is used
-  bool usesVertexOutVariable() const { return _vertexOutVariable != nullptr; }
-
-  /// @brief set the vertex out variable
-  void setVertexOutput(Variable const* outVar) { _vertexOutVariable = outVar; }
-
-  /// @brief return the edge out variable
-  Variable const* edgeOutVariable() const { return _edgeOutVariable; }
-
-  /// @brief checks if the edge out variable is used
-  bool usesEdgeOutVariable() const { return _edgeOutVariable != nullptr; }
-
-  /// @brief set the edge out variable
-  void setEdgeOutput(Variable const* outVar) { _edgeOutVariable = outVar; }
 
   /// @brief getVariablesSetHere
   std::vector<Variable const*> getVariablesSetHere() const override final {
@@ -155,27 +132,13 @@ class ShortestPathNode : public GraphNode {
 
   traverser::ShortestPathOptions* options() const;
 
-  std::vector<std::unique_ptr<aql::Collection>> const& edgeColls() const {
-    return _edgeColls;
-  }
-
-  std::vector<std::unique_ptr<aql::Collection>> const& vertexColls() const {
-    return _vertexColls;
-  }
-
   // Nothing to do here. Just API compatibility
   void getConditionVariables(std::vector<Variable const*>&) const {}
-
-  void enhanceEngineInfo(arangodb::velocypack::Builder&) const;
 
   /// @brief Compute the traversal options containing the expressions
   ///        MUST! be called after optimization and before creation
   ///        of blocks.
-  void prepareOptions();
-
-  /// @brief Add a traverser engine Running on a DBServer to this node.
-  ///        The block will communicate with them (CLUSTER ONLY)
-  void addEngine(traverser::TraverserEngineID const&, ServerID const&);
+  void prepareOptions() override;
 
  private:
 

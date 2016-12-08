@@ -295,23 +295,6 @@ bool TraversalNode::isInRange(uint64_t depth, bool isEdge) const {
   return (depth <= max);
 }
 
-/// @brief check if all directions are equal
-bool TraversalNode::allDirectionsEqual() const {
-  if (_directions.empty()) {
-    // no directions!
-    return false;
-  }
-  size_t const n = _directions.size();
-  TRI_edge_direction_e const expected = _directions[0];
-
-  for (size_t i = 1; i < n; ++i) {
-    if (_directions[i] != expected) {
-      return false;
-    }
-  }
-  return true;
-}
-
 void TraversalNode::toVelocyPackHelper(arangodb::velocypack::Builder& nodes,
                                        bool verbose) const {
   ExecutionNode::toVelocyPackHelperGeneric(nodes,
@@ -703,12 +686,6 @@ void TraversalNode::prepareOptions() {
   _optionsBuild = true;
 }
 
-void TraversalNode::addEngine(TraverserEngineID const& engine,
-                              arangodb::ServerID const& server) {
-  TRI_ASSERT(arangodb::ServerState::instance()->isCoordinator());
-  _engines.emplace(server, engine);
-}
-
 /// @brief remember the condition to execute for early traversal abortion.
 void TraversalNode::setCondition(arangodb::aql::Condition* condition) {
   std::unordered_set<Variable const*> varsUsedByCondition;
@@ -766,14 +743,6 @@ arangodb::traverser::TraverserOptions* TraversalNode::options() const {
   return static_cast<traverser::TraverserOptions*>(_options.get());
 }
 
-AstNode* TraversalNode::getTemporaryRefNode() const {
-  return _tmpObjVarNode;
-}
-
-Variable const* TraversalNode::getTemporaryVariable() const {
-  return _tmpObjVariable;
-}
-
 void TraversalNode::getConditionVariables(
     std::vector<Variable const*>& res) const {
   for (auto const& it : _conditionVariables) {
@@ -782,16 +751,6 @@ void TraversalNode::getConditionVariables(
     }
   }
 }
-
-#ifndef USE_ENTERPRISE
-void TraversalNode::enhanceEngineInfo(VPackBuilder& builder) const {
-  if (_graphObj != nullptr) {
-    _graphObj->enhanceEngineInfo(builder);
-  } else {
-    // TODO enhance the Info based on EdgeCollections.
-  }
-}
-#endif
 
 #ifdef TRI_ENABLE_MAINTAINER_MODE
 void TraversalNode::checkConditionsDefined() const {

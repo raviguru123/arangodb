@@ -28,6 +28,7 @@
 #include "Aql/Ast.h"
 #include "Aql/ExecutionPlan.h"
 #include "Cluster/ClusterInfo.h"
+#include "Cluster/TraverserEngineRegistry.h"
 #include "Utils/CollectionNameResolver.h"
 
 using namespace arangodb::basics;
@@ -422,3 +423,48 @@ GraphNode::GraphNode(
 
   _graphInfo.close();
 }
+
+#ifndef USE_ENTERPRISE
+void GraphNode::enhanceEngineInfo(VPackBuilder& builder) const {
+  if (_graphObj != nullptr) {
+    _graphObj->enhanceEngineInfo(builder);
+  } else {
+    // TODO enhance the Info based on EdgeCollections.
+  }
+}
+#endif
+
+void GraphNode::addEngine(traverser::TraverserEngineID const& engine,
+                          arangodb::ServerID const& server) {
+  TRI_ASSERT(arangodb::ServerState::instance()->isCoordinator());
+  _engines.emplace(server, engine);
+}
+
+/// @brief check if all directions are equal
+bool GraphNode::allDirectionsEqual() const {
+  if (_directions.empty()) {
+    // no directions!
+    return false;
+  }
+  size_t const n = _directions.size();
+  TRI_edge_direction_e const expected = _directions[0];
+
+  for (size_t i = 1; i < n; ++i) {
+    if (_directions[i] != expected) {
+      return false;
+    }
+  }
+  return true;
+}
+
+
+
+AstNode* GraphNode::getTemporaryRefNode() const {
+  return _tmpObjVarNode;
+}
+
+Variable const* GraphNode::getTemporaryVariable() const {
+  return _tmpObjVariable;
+}
+
+
