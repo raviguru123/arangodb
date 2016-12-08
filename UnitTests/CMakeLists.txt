@@ -17,6 +17,7 @@ add_executable(${TEST_BASICS_SUITE}
   Basics/json-test.cpp
   Basics/hashes-test.cpp
   Basics/associative-multi-pointer-test.cpp
+  Basics/RocksDBMapTest.cpp
   Basics/associative-multi-pointer-nohashcache-test.cpp
   Basics/skiplist-test.cpp
   Basics/priorityqueue-test.cpp
@@ -39,6 +40,7 @@ include_directories(
 
 target_link_libraries(${TEST_BASICS_SUITE}
   ${LIB_ARANGO}
+  ${ROCKSDB_LIBS}
   boost_system
   boost_boost
   ${MSVC_LIBS}

@@ -33,6 +33,8 @@
 
 #include <velocypack/Builder.h>
 #include <velocypack/velocypack-aliases.h>
+#include <cassert>
+#include <iostream>
 #include <thread>
 
 #include "Basics/MutexLocker.h"
@@ -49,6 +51,12 @@
 #include <rocksdb/slice.h>
 #include <rocksdb/slice_transform.h>
 #include <rocksdb/table.h>
+
+#include <string>
+
+static arangodb::Mutex _rocksDbMutex;
+static rocksdb::DB* _db;        // single global instance
+static uint64_t _mapCount = 0;  // number of active maps
 
 namespace arangodb {
 namespace basics {
@@ -98,8 +106,8 @@ class RocksDBMap {
   std::string _mapPrefix;
   std::string _dbFolder;
   std::function<std::string()> _contextCallback;
-
-  rocksdb::DB* _db;
+  std::function<std::string(Key const&)> _keyToString;
+  std::function<std::string(Element const&)> _elementToString;
 
   uint64_t _size;
 
@@ -110,7 +118,11 @@ class RocksDBMap {
              IsEqualElementElementFuncType isEqualElementElementByKey,
              std::string mapPrefix,
              std::function<std::string()> contextCallback =
-                 []() -> std::string { return ""; })
+                 []() -> std::string { return ""; },
+             std::function<std::string(Key const&)> keyToString =
+                 [](Key const&) -> std::string { return ""; },
+             std::function<std::string(Element const&)> elementToString =
+                 [](Element const&) -> std::string { return ""; })
       : _extractKey(extractKey),
         _isEqualKeyElement(isEqualKeyElement),
         _isEqualElementElement(isEqualElementElement),
@@ -118,23 +130,38 @@ class RocksDBMap {
         _mapPrefix(mapPrefix),
         _dbFolder("/tmp/test_rocksdbmap"),
         _contextCallback(contextCallback),
+        _keyToString(keyToString),
+        _elementToString(elementToString),
         _size(0) {
-    rocksdb::BlockBasedTableOptions table_options;
-    table_options.block_cache =
-        rocksdb::NewLRUCache(100 * 1048576);  // 100MB uncompressed cache
+    MUTEX_LOCKER(locker, _rocksDbMutex);
+    if (_db == nullptr) {
+      rocksdb::BlockBasedTableOptions table_options;
+      table_options.block_cache =
+          rocksdb::NewLRUCache(100 * 1048576);  // 100MB uncompressed cache
 
-    rocksdb::Options options;
-    options.table_factory.reset(
-        rocksdb::NewBlockBasedTableFactory(table_options));
-    options.create_if_missing = true;
-    options.prefix_extractor.reset(
-        rocksdb::NewFixedPrefixTransform(_mapPrefix.length()));
+      rocksdb::Options options;
+      options.table_factory.reset(
+          rocksdb::NewBlockBasedTableFactory(table_options));
+      options.create_if_missing = true;
+      options.prefix_extractor.reset(
+          rocksdb::NewFixedPrefixTransform(_mapPrefix.length()));
 
-    auto status = rocksdb::DB::Open(options, _dbFolder, &_db);
-    TRI_ASSERT(status.ok());
+      auto status = rocksdb::DB::Open(options, _dbFolder, &_db);
+      TRI_ASSERT(status.ok());
+      assert(status.ok());
+    }
+    _mapCount++;
   }
 
-  ~RocksDBMap() { delete _db; }
+  ~RocksDBMap() {
+    truncate([](Element&) -> bool { return true; });
+    MUTEX_LOCKER(locker, _rocksDbMutex);
+    _mapCount--;
+    if (_mapCount == 0) {
+      delete _db;
+      _db = nullptr;
+    }
+  }
 
   //////////////////////////////////////////////////////////////////////////////
   /// @brief adhere to the rule of five
@@ -154,13 +181,18 @@ class RocksDBMap {
   }
 
  private:
-  rocksdb::Slice prefixKey(Key const* k) const {
-    rocksdb::Slice parts[2];
-    parts[0] = rocksdb::Slice(_mapPrefix.data(), _mapPrefix.length());
-    parts[1] = rocksdb::Slice(reinterpret_cast<char const*>(k), sizeof(Key));
-    rocksdb::SliceParts blobs(parts, 2);
-    std::string buffer;
-    return rocksdb::Slice(blobs, &buffer);
+  std::string prefixKey(Key const* k) const {
+    std::string buf(_mapPrefix.data(), _mapPrefix.size());
+    buf.append(reinterpret_cast<char const*>(k), sizeof(Key));
+    return buf;
+  }
+
+  rocksdb::Slice wrapElement(Element const* e) const {
+    return rocksdb::Slice(reinterpret_cast<char const*>(e), sizeof(Element));
+  }
+
+  Element unwrapElement(std::string const* eSlice) const {
+    return Element(*(reinterpret_cast<Element const*>(eSlice->data())));
   }
 
  public:
@@ -173,6 +205,7 @@ class RocksDBMap {
       callback(e);
       auto status = _db->Delete(rocksdb::WriteOptions(), it->key());
       TRI_ASSERT(status.ok());
+      _size--;
     }
   }
 
@@ -215,8 +248,9 @@ class RocksDBMap {
   //////////////////////////////////////////////////////////////////////////////
 
   Element find(UserData* userData, Element const& element) const {
-    Key k = _extractKey(element);
-    return findByKey(userData, &k);
+    Key k = _extractKey(userData, element);
+    Element found = findByKey(userData, &k);
+    return _isEqualElementElement(userData, element, found) ? found : Element();
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -225,14 +259,15 @@ class RocksDBMap {
   //////////////////////////////////////////////////////////////////////////////
 
   Element findByKey(UserData* userData, Key const* key) const {
-    // TODO: do this
-    auto kSlice = prefixKey(key);
-    std::string vSlice(sizeof(Element), '\0');
-    auto status = _db->Get(rocksdb::ReadOptions(), kSlice, &vSlice);
+    std::string prefixedKey = prefixKey(key);
+    rocksdb::Slice kSlice(prefixedKey);
+    std::string eSlice(sizeof(Element), '\0');
+    auto status = _db->Get(rocksdb::ReadOptions(), kSlice, &eSlice);
     if (status.ok()) {
-      return Element(*reinterpret_cast<Element const*>(vSlice.data()));
+      return unwrapElement(&eSlice);
     } else {
-      return Element();
+      Element noE;
+      return noE;
     }
   }
 
@@ -246,12 +281,19 @@ class RocksDBMap {
   //////////////////////////////////////////////////////////////////////////////
 
   int insert(UserData* userData, Element const& element) {
-    // TODO: uniqueness check
-    Key key = _extractKey(element);
-    auto kSlice = prefixKey(key);
-    auto vSlice = wrapElement(element);
-    auto status = _db->Put(rocksdb::WriteOptions(), kSlice, vSlice);
+    Key key = _extractKey(userData, element);
+
+    Element found = findByKey(userData, &key);
+    if (_isEqualElementElementByKey(userData, element, found)) {
+      return TRI_ERROR_ARANGO_UNIQUE_CONSTRAINT_VIOLATED;
+    }
+
+    std::string prefixedKey = prefixKey(&key);
+    rocksdb::Slice kSlice(prefixedKey);
+    auto eSlice = wrapElement(&element);
+    auto status = _db->Put(rocksdb::WriteOptions(), kSlice, eSlice);
     if (status.ok()) {
+      _size++;
       return TRI_ERROR_NO_ERROR;
     } else {
       return TRI_ERROR_ARANGO_UNIQUE_CONSTRAINT_VIOLATED;  // wrong error
@@ -276,9 +318,19 @@ class RocksDBMap {
   //////////////////////////////////////////////////////////////////////////////
 
   Element removeByKey(UserData* userData, Key const* key) {
-    // TODO: do this
-    Element e;
-    return e;
+    std::string prefixedKey = prefixKey(key);
+    rocksdb::Slice kSlice(prefixedKey);
+    std::string eSlice(sizeof(Element), '\0');
+    auto status = _db->Get(rocksdb::ReadOptions(), kSlice, &eSlice);
+    if (status.ok()) {
+      status = _db->Delete(rocksdb::WriteOptions(), kSlice);
+      if (status.ok()) {
+        _size--;
+      } else {
+        eSlice.replace(0, eSlice.length(), 1, '\0');
+      }
+    }
+    return unwrapElement(&eSlice);
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -287,9 +339,11 @@ class RocksDBMap {
   //////////////////////////////////////////////////////////////////////////////
 
   Element remove(UserData* userData, Element const& element) {
-    // TODO: do this
-    Element e;
-    return e;
+    Key k = _extractKey(userData, element);
+    Element found = findByKey(userData, &k);
+    return _isEqualElementElement(userData, element, found)
+               ? removeByKey(userData, &k)
+               : Element();
   }
 
   /// @brief a method to iterate over all elements in the hash. this method
