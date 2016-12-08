@@ -39,6 +39,7 @@ using namespace arangodb::traverser;
 
 static const std::string OPTIONS = "options";
 static const std::string SHARDS = "shards";
+static const std::string TYPE = "type";
 static const std::string EDGES = "edges";
 static const std::string VARIABLES = "variables";
 static const std::string VERTICES = "vertices";
@@ -326,10 +327,24 @@ TraverserEngine::TraverserEngine(TRI_vocbase_t* vocbase,
         TRI_ERROR_BAD_PARAMETER,
         "The body requires an " + OPTIONS + " attribute.");
   }
+  VPackSlice typeSlice = info.get(TYPE);
   VPackSlice shardsSlice = info.get(SHARDS);
   VPackSlice edgesSlice = shardsSlice.get(EDGES);
-
-  _opts.reset(new TraverserOptions(_query, optsSlice, edgesSlice));
+  if (!typeSlice.isString()) {
+    THROW_ARANGO_EXCEPTION_MESSAGE(
+        TRI_ERROR_BAD_PARAMETER,
+        "The body requires an " + TYPE + " attribute.");
+  }
+  StringRef type(typeSlice);
+  if (type == "shortest") {
+    // TODO FIXME
+  } else if (type == "traversal") {
+    _opts.reset(new TraverserOptions(_query, optsSlice, edgesSlice));
+  } else {
+    THROW_ARANGO_EXCEPTION_MESSAGE(
+        TRI_ERROR_BAD_PARAMETER,
+        "The " + TYPE + " has to be shortest or traversal.");
+  }
 }
 
 

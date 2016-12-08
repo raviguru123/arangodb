@@ -142,6 +142,7 @@ SET(ARANGOD_SOURCES
   Aql/FunctionDefinitions.cpp
   Aql/Functions.cpp
   Aql/Graphs.cpp
+  Aql/GraphNode.cpp
   Aql/IndexBlock.cpp
   Aql/IndexNode.cpp
   Aql/ModificationBlocks.cpp
