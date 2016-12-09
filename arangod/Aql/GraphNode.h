@@ -103,6 +103,10 @@ class GraphNode : public ExecutionNode {
  
   void enhanceEngineInfo(arangodb::velocypack::Builder&) const;
 
+  virtual traverser::BaseTraverserOptions* options() const = 0;
+
+  virtual void getConditionVariables(std::vector<Variable const*>&) const {};
+
   /// @brief Compute the traversal options containing the expressions
   ///        MUST! be called after optimization and before creation
   ///        of blocks.

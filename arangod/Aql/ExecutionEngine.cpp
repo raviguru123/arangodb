@@ -204,13 +204,10 @@ struct Instanciator final : public WalkerWorker<ExecutionNode> {
   virtual void after(ExecutionNode* en) override final {
     ExecutionBlock* block = nullptr;
     {
-      if (en->getType() == ExecutionNode::TRAVERSAL) {
+      if (en->getType() == ExecutionNode::TRAVERSAL ||
+          en->getType() == ExecutionNode::SHORTEST_PATH) {
         // We have to prepare the options before we build the block
-        static_cast<TraversalNode*>(en)->prepareOptions();
-      }
-      if (en->getType() == ExecutionNode::SHORTEST_PATH) {
-        // We have to prepare the options before we build the block
-        static_cast<ShortestPathNode*>(en)->prepareOptions();
+        static_cast<GraphNode*>(en)->prepareOptions();
       }
       std::unique_ptr<ExecutionBlock> eb(CreateBlock(engine, en, cache));
 
@@ -748,8 +745,7 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
 
   /// @brief Build traverser engines on DBServers. Coordinator still uses
   ///        traversal block.
-  template<typename Node>
-  void buildTraverserEnginesForNode(Node* en) {
+  void buildTraverserEnginesForNode(GraphNode* en) {
     // We have to initialize all options. After this point the node
     // is not cloneable any more.
     // Required prior to creation of engines.
@@ -1042,11 +1038,10 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
       engines.emplace_back(currentLocation, currentEngineId, part, en->id());
     }
 
-    if (nodeType == ExecutionNode::TRAVERSAL) {
+    if (nodeType == ExecutionNode::TRAVERSAL ||
+        nodeType == ExecutionNode::SHORTEST_PATH) {
       // Now build traverser engines.
-      buildTraverserEnginesForNode<TraversalNode>(static_cast<TraversalNode*>(en));
-    } else if (nodeType == ExecutionNode::SHORTEST_PATH) {
-      buildTraverserEnginesForNode<ShortestPathNode>(static_cast<ShortestPathNode*>(en));
+      buildTraverserEnginesForNode(static_cast<GraphNode*>(en));
     }
 
     return false;

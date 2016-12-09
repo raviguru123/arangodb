@@ -196,9 +196,9 @@ class TraversalNode : public GraphNode {
   ///        The condition will contain the local variable for it's accesses.
   void registerGlobalCondition(bool, AstNode const*);
 
-  traverser::TraverserOptions* options() const;
+  traverser::TraverserOptions* options() const override;
 
-  void getConditionVariables(std::vector<Variable const*>&) const;
+  void getConditionVariables(std::vector<Variable const*>&) const override;
 
   /// @brief Compute the traversal options containing the expressions
   ///        MUST! be called after optimization and before creation

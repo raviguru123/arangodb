@@ -130,10 +130,7 @@ class ShortestPathNode : public GraphNode {
     }
   }
 
-  traverser::ShortestPathOptions* options() const;
-
-  // Nothing to do here. Just API compatibility
-  void getConditionVariables(std::vector<Variable const*>&) const {}
+  traverser::ShortestPathOptions* options() const override;
 
   /// @brief Compute the traversal options containing the expressions
   ///        MUST! be called after optimization and before creation
