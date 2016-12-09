@@ -51,6 +51,8 @@ using namespace std;
 #define ELEMENT(name, k, v) Element name(k, v)
 #define KEY(name, k) Key name(k)
 
+#define POSITION(name) arangodb::basics::RocksDBPosition name
+
 struct Key {
   uint64_t k;
   Key() : k(0) {}
@@ -321,6 +323,186 @@ BOOST_AUTO_TEST_CASE(tst_truncate_two) {
   DESTROY_MAP(m1);
   DESTROY_MAP(m2);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief test forward iteration with a single map
+////////////////////////////////////////////////////////////////////////////////
+
+BOOST_AUTO_TEST_CASE(tst_iter_fwd_one) {
+  INIT_MAP(m1, std::string("abc"));
+
+  ELEMENT(empty, 0, 0);
+  ELEMENT(e1, 1, 123);
+  ELEMENT(e2, 2, 456);
+  ELEMENT(e3, 3, 789);
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e1));
+  BOOST_CHECK_EQUAL((uint64_t)1, m1.size());
+  BOOST_CHECK_EQUAL(e1, m1.find(nullptr, e1));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e2));
+  BOOST_CHECK_EQUAL((uint64_t)2, m1.size());
+  BOOST_CHECK_EQUAL(e2, m1.find(nullptr, e2));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e3));
+  BOOST_CHECK_EQUAL((uint64_t)3, m1.size());
+  BOOST_CHECK_EQUAL(e3, m1.find(nullptr, e3));
+
+  POSITION(p1);
+  uint64_t total;
+  BOOST_CHECK_EQUAL(e1, m1.findSequential(nullptr, p1, total));
+  BOOST_CHECK_EQUAL(e2, m1.findSequential(nullptr, p1, total));
+  BOOST_CHECK_EQUAL(e3, m1.findSequential(nullptr, p1, total));
+  BOOST_CHECK_EQUAL(empty, m1.findSequential(nullptr, p1, total));
+
+  DESTROY_MAP(m1);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief test forward iteration with two maps
+////////////////////////////////////////////////////////////////////////////////
+
+BOOST_AUTO_TEST_CASE(tst_iter_fwd_two) {
+  INIT_MAP(m1, std::string("abc"));
+  INIT_MAP(m2, std::string("def"));
+
+  ELEMENT(empty, 0, 0);
+  ELEMENT(e1, 1, 123);
+  ELEMENT(e2, 2, 456);
+  ELEMENT(e3, 3, 789);
+  ELEMENT(e4, 4, 123);
+  ELEMENT(e5, 5, 456);
+  ELEMENT(e6, 6, 789);
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e1));
+  BOOST_CHECK_EQUAL((uint64_t)1, m1.size());
+  BOOST_CHECK_EQUAL(e1, m1.find(nullptr, e1));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m2.insert(nullptr, e2));
+  BOOST_CHECK_EQUAL((uint64_t)1, m2.size());
+  BOOST_CHECK_EQUAL(e2, m2.find(nullptr, e2));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e3));
+  BOOST_CHECK_EQUAL((uint64_t)2, m1.size());
+  BOOST_CHECK_EQUAL(e3, m1.find(nullptr, e3));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m2.insert(nullptr, e4));
+  BOOST_CHECK_EQUAL((uint64_t)2, m2.size());
+  BOOST_CHECK_EQUAL(e4, m2.find(nullptr, e4));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e5));
+  BOOST_CHECK_EQUAL((uint64_t)3, m1.size());
+  BOOST_CHECK_EQUAL(e5, m1.find(nullptr, e5));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m2.insert(nullptr, e6));
+  BOOST_CHECK_EQUAL((uint64_t)3, m2.size());
+  BOOST_CHECK_EQUAL(e6, m2.find(nullptr, e6));
+
+  POSITION(p1);
+  POSITION(p2);
+  uint64_t total1;
+  uint64_t total2;
+  BOOST_CHECK_EQUAL(e1, m1.findSequential(nullptr, p1, total1));
+  BOOST_CHECK_EQUAL(e2, m2.findSequential(nullptr, p2, total2));
+  BOOST_CHECK_EQUAL(e3, m1.findSequential(nullptr, p1, total1));
+  BOOST_CHECK_EQUAL(e4, m2.findSequential(nullptr, p2, total2));
+  BOOST_CHECK_EQUAL(e5, m1.findSequential(nullptr, p1, total1));
+  BOOST_CHECK_EQUAL(e6, m2.findSequential(nullptr, p2, total2));
+  BOOST_CHECK_EQUAL(empty, m1.findSequential(nullptr, p1, total1));
+  BOOST_CHECK_EQUAL(empty, m2.findSequential(nullptr, p2, total2));
+
+  DESTROY_MAP(m1);
+  DESTROY_MAP(m2);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief test reverse iteration with a single map
+////////////////////////////////////////////////////////////////////////////////
+
+BOOST_AUTO_TEST_CASE(tst_iter_rev_one) {
+  INIT_MAP(m1, std::string("abc"));
+
+  ELEMENT(empty, 0, 0);
+  ELEMENT(e1, 1, 123);
+  ELEMENT(e2, 2, 456);
+  ELEMENT(e3, 3, 789);
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e1));
+  BOOST_CHECK_EQUAL((uint64_t)1, m1.size());
+  BOOST_CHECK_EQUAL(e1, m1.find(nullptr, e1));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e2));
+  BOOST_CHECK_EQUAL((uint64_t)2, m1.size());
+  BOOST_CHECK_EQUAL(e2, m1.find(nullptr, e2));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e3));
+  BOOST_CHECK_EQUAL((uint64_t)3, m1.size());
+  BOOST_CHECK_EQUAL(e3, m1.find(nullptr, e3));
+
+  POSITION(p1);
+  BOOST_CHECK_EQUAL(e3, m1.findSequentialReverse(nullptr, p1));
+  BOOST_CHECK_EQUAL(e2, m1.findSequentialReverse(nullptr, p1));
+  BOOST_CHECK_EQUAL(e1, m1.findSequentialReverse(nullptr, p1));
+  BOOST_CHECK_EQUAL(empty, m1.findSequentialReverse(nullptr, p1));
+
+  DESTROY_MAP(m1);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief test reverse iteration with two maps
+////////////////////////////////////////////////////////////////////////////////
+
+BOOST_AUTO_TEST_CASE(tst_iter_rev_two) {
+  INIT_MAP(m1, std::string("abc"));
+  INIT_MAP(m2, std::string("def"));
+
+  ELEMENT(empty, 0, 0);
+  ELEMENT(e1, 1, 123);
+  ELEMENT(e2, 2, 456);
+  ELEMENT(e3, 3, 789);
+  ELEMENT(e4, 4, 123);
+  ELEMENT(e5, 5, 456);
+  ELEMENT(e6, 6, 789);
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e1));
+  BOOST_CHECK_EQUAL((uint64_t)1, m1.size());
+  BOOST_CHECK_EQUAL(e1, m1.find(nullptr, e1));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m2.insert(nullptr, e2));
+  BOOST_CHECK_EQUAL((uint64_t)1, m2.size());
+  BOOST_CHECK_EQUAL(e2, m2.find(nullptr, e2));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e3));
+  BOOST_CHECK_EQUAL((uint64_t)2, m1.size());
+  BOOST_CHECK_EQUAL(e3, m1.find(nullptr, e3));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m2.insert(nullptr, e4));
+  BOOST_CHECK_EQUAL((uint64_t)2, m2.size());
+  BOOST_CHECK_EQUAL(e4, m2.find(nullptr, e4));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e5));
+  BOOST_CHECK_EQUAL((uint64_t)3, m1.size());
+  BOOST_CHECK_EQUAL(e5, m1.find(nullptr, e5));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m2.insert(nullptr, e6));
+  BOOST_CHECK_EQUAL((uint64_t)3, m2.size());
+  BOOST_CHECK_EQUAL(e6, m2.find(nullptr, e6));
+
+  POSITION(p1);
+  POSITION(p2);
+  BOOST_CHECK_EQUAL(e5, m1.findSequentialReverse(nullptr, p1));
+  BOOST_CHECK_EQUAL(e6, m2.findSequentialReverse(nullptr, p2));
+  BOOST_CHECK_EQUAL(e3, m1.findSequentialReverse(nullptr, p1));
+  BOOST_CHECK_EQUAL(e4, m2.findSequentialReverse(nullptr, p2));
+  BOOST_CHECK_EQUAL(e1, m1.findSequentialReverse(nullptr, p1));
+  BOOST_CHECK_EQUAL(e2, m2.findSequentialReverse(nullptr, p2));
+  BOOST_CHECK_EQUAL(empty, m1.findSequentialReverse(nullptr, p1));
+  BOOST_CHECK_EQUAL(empty, m2.findSequentialReverse(nullptr, p2));
+
+  DESTROY_MAP(m1);
+  DESTROY_MAP(m2);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief generate tests
 ////////////////////////////////////////////////////////////////////////////////

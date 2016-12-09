@@ -63,17 +63,19 @@ namespace basics {
 
 struct RocksDBPosition {
   size_t bucketId;
-  uint64_t position;
+  rocksdb::Iterator* it;
 
-  RocksDBPosition() : bucketId(SIZE_MAX), position(0) {}
-
-  void reset() {
-    bucketId = SIZE_MAX - 1;
-    position = 0;
+  RocksDBPosition() : bucketId(SIZE_MAX), it(nullptr) {}
+  ~RocksDBPosition() {
+    if (it != nullptr) {
+      delete it;
+    }
   }
 
+  void reset() { bucketId = SIZE_MAX - 1; }
+
   bool operator==(RocksDBPosition const& other) const {
-    return position == other.position && bucketId == other.bucketId;
+    return it == other.it && bucketId == other.bucketId;
   }
 };
 
@@ -195,13 +197,17 @@ class RocksDBMap {
     return Element(*(reinterpret_cast<Element const*>(eSlice->data())));
   }
 
+  Element unwrapIterator(rocksdb::Iterator const* it) const {
+    return Element(*reinterpret_cast<Element const*>(it->value().data()));
+  }
+
  public:
   void truncate(CallbackElementFuncType callback) {
     auto it = _db->NewIterator(rocksdb::ReadOptions());
     for (it->Seek(_mapPrefix); it->Valid() && it->key().starts_with(_mapPrefix);
          it->Next()) {
       // TODO: invoke callback on all elements, then delete them
-      Element e(*reinterpret_cast<Element const*>(it->value().data()));
+      Element e = unwrapIterator(it);
       callback(e);
       auto status = _db->Delete(rocksdb::WriteOptions(), it->key());
       TRI_ASSERT(status.ok());
@@ -349,15 +355,16 @@ class RocksDBMap {
   /// @brief a method to iterate over all elements in the hash. this method
   /// can NOT be used for deleting elements
   void invokeOnAllElements(CallbackElementFuncType const& callback) {
-    // TODO: do this
-  }
-
-  /// @brief a method to iterate over all elements in a bucket. this method
-  /// can NOT be used for deleting elements
-  bool invokeOnAllElements(CallbackElementFuncType const& callback,
-                           Element& e) {
-    // TODO: do this
-    return true;
+    auto it = _db->NewIterator(rocksdb::ReadOptions());
+    for (it->Seek(_mapPrefix); it->Valid() && it->key().starts_with(_mapPrefix);
+         it->Next()) {
+      // TODO: invoke callback on all elements, then delete them
+      Element e = unwrapIterator(it);
+      ;
+      if (!callback(e)) {
+        return;
+      }
+    }
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -366,7 +373,18 @@ class RocksDBMap {
   //////////////////////////////////////////////////////////////////////////////
 
   void invokeOnAllElementsForRemoval(CallbackElementFuncType callback) {
-    // TODO: do this
+    auto it = _db->NewIterator(rocksdb::ReadOptions());
+    for (it->Seek(_mapPrefix); it->Valid() && it->key().starts_with(_mapPrefix);
+         it->Next()) {
+      // TODO: invoke callback on all elements, then delete them
+      Element e = unwrapIterator(it);
+      if (!callback(e)) {
+        return;
+      }
+      if (_size == 0) {
+        return;
+      }
+    }
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -380,9 +398,20 @@ class RocksDBMap {
 
   Element findSequential(UserData* userData, RocksDBPosition& position,
                          uint64_t& total) const {
-    // TODO: do this for indexes
-    Element e;
-    return e;
+    if (position.bucketId == SIZE_MAX || position.bucketId == SIZE_MAX - 1) {
+      position.it = _db->NewIterator(rocksdb::ReadOptions());
+      position.it->Seek(_mapPrefix);
+      total = _size;
+      position.bucketId = 0;
+    } else {
+      position.it->Next();
+    }
+
+    if (position.it->Valid() && position.it->key().starts_with(_mapPrefix)) {
+      return unwrapIterator(position.it);
+    } else {
+      return Element();
+    }
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -394,9 +423,24 @@ class RocksDBMap {
 
   Element findSequentialReverse(UserData* userData,
                                 RocksDBPosition& position) const {
-    // TODO: do this for indexes
-    Element e;
-    return e;
+    if (position.bucketId == SIZE_MAX || position.bucketId == SIZE_MAX - 1) {
+      auto options = rocksdb::ReadOptions();
+      options.total_order_seek = true;
+      position.it = _db->NewIterator(options);
+      position.it->SeekToLast();
+      position.bucketId = 0;
+    } else {
+      position.it->Prev();
+    }
+    for (; position.it->Valid() && !position.it->key().starts_with(_mapPrefix);
+         position.it->Prev())
+      ;
+
+    if (position.it->Valid() && position.it->key().starts_with(_mapPrefix)) {
+      return unwrapIterator(position.it);
+    } else {
+      return Element();
+    }
   }
 
   //////////////////////////////////////////////////////////////////////////////
