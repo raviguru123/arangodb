@@ -152,13 +152,14 @@ void BaseTraverserEngine::getEdges(VPackSlice vertex, size_t depth, VPackBuilder
   builder.openObject();
   builder.add(VPackValue("edges"));
   builder.openArray();
+  auto opts = static_cast<TraverserOptions*>(_opts.get());
   if (vertex.isArray()) {
     for (VPackSlice v : VPackArrayIterator(vertex)) {
       TRI_ASSERT(v.isString());
       result.clear();
-      auto edgeCursor = _opts->nextCursor(&mmdr, v, depth);
+      auto edgeCursor = opts->nextCursor(&mmdr, v, depth);
       while (edgeCursor->next(result, cursorId)) {
-        if (!_opts->evaluateEdgeExpression(result.back(), v, depth, cursorId)) {
+        if (!opts->evaluateEdgeExpression(result.back(), v, depth, cursorId)) {
           filtered++;
           result.pop_back();
         }
@@ -169,10 +170,10 @@ void BaseTraverserEngine::getEdges(VPackSlice vertex, size_t depth, VPackBuilder
       // Result now contains all valid edges, probably multiples.
     }
   } else if (vertex.isString()) {
-    std::unique_ptr<arangodb::traverser::EdgeCursor> edgeCursor(_opts->nextCursor(&mmdr, vertex, depth));
+    std::unique_ptr<arangodb::traverser::EdgeCursor> edgeCursor(opts->nextCursor(&mmdr, vertex, depth));
 
     while (edgeCursor->next(result, cursorId)) {
-      if (!_opts->evaluateEdgeExpression(result.back(), vertex, depth, cursorId)) {
+      if (!opts->evaluateEdgeExpression(result.back(), vertex, depth, cursorId)) {
         filtered++;
         result.pop_back();
       }
@@ -337,7 +338,7 @@ TraverserEngine::TraverserEngine(TRI_vocbase_t* vocbase,
   }
   StringRef type(typeSlice);
   if (type == "shortest") {
-    // TODO FIXME
+    _opts.reset(new ShortestPathOptions(_query, optsSlice, edgesSlice));
   } else if (type == "traversal") {
     _opts.reset(new TraverserOptions(_query, optsSlice, edgesSlice));
   } else {
