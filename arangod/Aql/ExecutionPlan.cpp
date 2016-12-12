@@ -717,8 +717,7 @@ ExecutionNode* ExecutionPlan::fromNodeTraversal(ExecutionNode* previous,
   // First create the node
   auto travNode =
       new TraversalNode(this, nextId(), _ast->query()->vocbase(),
-                        direction->getMember(0), start, graph, options.get());
-  options.release();
+                        direction->getMember(0), start, graph, options.release());
 
   auto variable = node->getMember(4);
   TRI_ASSERT(variable->type == NODE_TYPE_VARIABLE);
@@ -795,8 +794,7 @@ ExecutionNode* ExecutionPlan::fromNodeShortestPath(ExecutionNode* previous,
   // First create the node
   auto spNode = new ShortestPathNode(this, nextId(), _ast->query()->vocbase(),
                                      direction, start, target,
-                                     graph, options.get());
-  options.release();
+                                     graph, options.release());
 
   auto variable = node->getMember(5);
   TRI_ASSERT(variable->type == NODE_TYPE_VARIABLE);
