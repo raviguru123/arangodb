@@ -57,6 +57,9 @@ class ShortestPathBlock : public ExecutionBlock {
   /// @brief initializeCursor
   int initializeCursor(AqlItemBlock* items, size_t pos) override;
 
+  /// @brief shutdown send destroy to all engines.
+  int shutdown(int errorCode) override final;
+
   /// @brief getSome
   AqlItemBlock* getSome(size_t atLeast, size_t atMost) override final;
 
@@ -151,6 +154,7 @@ class ShortestPathBlock : public ExecutionBlock {
   /// @brief Builder to make sure that target velocypack does not get out of scope
   arangodb::velocypack::Builder targetBuilder;
 
+  std::unordered_map<ServerID, traverser::TraverserEngineID> const* _engines;
 };
 
 } // namespace arangodb::aql
