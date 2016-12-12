@@ -121,6 +121,16 @@ JOB_STATUS CleanOutServer::status() {
 
 bool CleanOutServer::create() {  // Only through shrink cluster
 
+  // Lookup server
+  if (_server.find("DBServer") == 0) {
+    try {
+      _server = uuidLookup(_snapshot, _server);
+    } catch (...) {
+      LOG_TOPIC(ERR, Logger::AGENCY) <<
+        "MoveShard: To server " << _server << " does not exist";
+    }
+  }
+
   LOG_TOPIC(INFO, Logger::AGENCY)
       << "Todo: Clean out server " + _server + " for shrinkage";
 
@@ -243,7 +253,7 @@ bool CleanOutServer::start() {
 
 bool CleanOutServer::scheduleMoveShards() {
 
-  std::vector<std::string> servers = availableServers();
+  std::vector<std::string> servers = availableServers(_snapshot);
 
   // Minimum 1 DB server must remain
   if (servers.size() == 1) {

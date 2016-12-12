@@ -124,7 +124,6 @@ void AgencyPrecondition::toGeneralBuilder(VPackBuilder& builder) const {
 AgencyOperation::AgencyOperation(std::string const& key)
     : _key(AgencyCommManager::path(key)), _opType() {
   _opType.type = AgencyOperationType::Type::READ;
-  LOG(WARN) << _opType.toString();
 }
 
 AgencyOperation::AgencyOperation(std::string const& key,
@@ -374,7 +373,7 @@ void AgencyCommManager::initialize(std::string const& prefix) {
   MANAGER.reset(new AgencyCommManager(prefix));
 }
 
-void AgencyCommManager::shutdown() { MANAGER.release(); }
+void AgencyCommManager::shutdown() { MANAGER.reset(); }
 
 std::string AgencyCommManager::path() {
   if (MANAGER == nullptr) {
