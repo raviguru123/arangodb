@@ -328,7 +328,7 @@ TraverserEngine::TraverserEngine(TRI_vocbase_t* vocbase,
         TRI_ERROR_BAD_PARAMETER,
         "The body requires an " + OPTIONS + " attribute.");
   }
-  VPackSlice typeSlice = info.get(TYPE);
+  VPackSlice typeSlice = optsSlice.get(TYPE);
   VPackSlice shardsSlice = info.get(SHARDS);
   VPackSlice edgesSlice = shardsSlice.get(EDGES);
   if (!typeSlice.isString()) {

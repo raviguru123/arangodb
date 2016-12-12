@@ -527,7 +527,6 @@ TraverserOptions::~TraverserOptions() {
 
 void TraverserOptions::toVelocyPack(VPackBuilder& builder) const {
   VPackObjectBuilder guard(&builder);
-
   builder.add("minDepth", VPackValue(minDepth));
   builder.add("maxDepth", VPackValue(maxDepth));
   builder.add("bfs", VPackValue(useBreadthFirst));
@@ -555,6 +554,7 @@ void TraverserOptions::toVelocyPack(VPackBuilder& builder) const {
       builder.add("uniqueEdges", VPackValue("global"));
       break;
   }
+  builder.add("type", VPackValue("traversal"));
 }
 
 void TraverserOptions::toVelocyPackIndexes(VPackBuilder& builder) const {
@@ -645,7 +645,7 @@ void TraverserOptions::buildEngineInfo(VPackBuilder& result) const {
     _baseVertexExpression->toVelocyPack(result, true);
     result.close();
   }
-
+  result.add("type", VPackValue("traversal"));
   result.close();
 }
 
@@ -778,11 +778,23 @@ void TraverserOptions::linkTraverser(
   _traverser = trav;
 }
 
-
-ShortestPathOptions::ShortestPathOptions(
-    arangodb::aql::Query* query, VPackSlice info, VPackSlice collections)
+ShortestPathOptions::ShortestPathOptions(arangodb::aql::Query* query,
+                                         VPackSlice info,
+                                         VPackSlice collections)
     : BaseTraverserOptions(query, info, collections),
-    _defaultWeight(1),
-    _weightAttribute("") {
-      // FIXME
-    }
+      _defaultWeight(1),
+      _weightAttribute("") {
+  // FIXME
+}
+
+void ShortestPathOptions::toVelocyPack(VPackBuilder& builder) const {
+  VPackObjectBuilder guard(&builder);
+  builder.add("type", VPackValue("shortest"));
+  // FIXME
+}
+
+void ShortestPathOptions::buildEngineInfo(VPackBuilder& result) const {
+  VPackObjectBuilder guard(&result);
+  BaseTraverserOptions::injectEngineInfo(result);
+  result.add("type", VPackValue("shortest"));
+}
