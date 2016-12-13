@@ -44,7 +44,7 @@ using namespace std;
   arangodb::basics::RocksDBMap<Key, Element> name(                            \
       ExtractKey, IsEqualKeyElement, IsEqualElementElement,                   \
       IsEqualElementElementByKey, prefix, []() -> std::string { return ""; }, \
-      KeyToString, ElementToString)
+      AppendKey, KeyToString, ElementToString)
 
 #define DESTROY_MAP(name)
 
@@ -120,9 +120,15 @@ static bool IsEqualElementElementByKey(void* userData, Element const& l,
 
 static bool CallbackElement(Element const& e) { return true; }
 
-static std::string KeyToString(Key const& k) { return std::to_string(k.k); }
+static void AppendKey(void*, std::string* buf, Key const* k) {
+  buf->append(reinterpret_cast<char const*>(k), sizeof(Key));
+}
 
-static std::string ElementToString(Element const& e) {
+static std::string KeyToString(void*, Key const& k) {
+  return std::to_string(k.k);
+}
+
+static std::string ElementToString(void*, Element const& e) {
   return std::string("(")
       .append(std::to_string(e.k.k))
       .append(", ")

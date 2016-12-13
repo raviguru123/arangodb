@@ -3140,8 +3140,11 @@ int LogicalCollection::lookupDocument(arangodb::Transaction* trx,
   }
 
   SimpleIndexElement element = primaryIndex()->lookupKey(trx, key, result);
+  std::cout << "A Getting revision " << std::to_string(element.revisionId())
+            << std::endl;
   if (element) {
     readRevision(trx, result, element.revisionId());
+    std::cout << "A Read revision" << std::endl;
     return TRI_ERROR_NO_ERROR;
   }
 

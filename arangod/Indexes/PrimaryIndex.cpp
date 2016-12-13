@@ -61,10 +61,36 @@ static inline std::string SliceToString(IndexLookupContext* context,
   TRI_ASSERT(context != nullptr);
   try {
     TRI_ASSERT(slice.isString());
-    return std::string(reinterpret_cast<char const*>(slice.begin()),
-                       slice.byteSize());
+    VPackValueLength length;
+    const char* begin = slice.getString(length);
+    return std::string(begin, length);
   } catch (...) {
     return std::string();
+  }
+}
+
+static inline void AppendKey(void* userData, std::string* buf,
+                             std::string const* key) {
+  buf->append(key->data(), key->size());
+}
+
+static inline std::string KeyToString(void* userData, std::string const& key) {
+  return key;
+}
+static inline std::string ElementToString(void* userData,
+                                          SimpleIndexElement const& element) {
+  IndexLookupContext* context = static_cast<IndexLookupContext*>(userData);
+  TRI_ASSERT(context != nullptr);
+
+  try {
+    VPackSlice tmp = element.slice(context);
+    return std::string("(")
+        .append(tmp.toString())
+        .append(", ")
+        .append(std::to_string(element.revisionId()))
+        .append(")");
+  } catch (...) {
+    return std::string("(0, 0)");
   }
 }
 
@@ -76,8 +102,9 @@ static inline std::string ExtractKey(void* userData,
   try {
     VPackSlice tmp = element.slice(context);
     TRI_ASSERT(tmp.isString());
-    return std::string(reinterpret_cast<char const*>(tmp.begin()),
-                       tmp.byteSize());
+    VPackValueLength length;
+    const char* begin = tmp.getString(length);
+    return std::string(begin, length);
   } catch (...) {
     return std::string();
   }
@@ -105,6 +132,10 @@ static bool IsEqualElementElement(void* userData,
                                   SimpleIndexElement const& right) {
   IndexLookupContext* context = static_cast<IndexLookupContext*>(userData);
   TRI_ASSERT(context != nullptr);
+
+  if ((left && !right) || (!left && right)) {
+    return false;
+  }
 
   VPackSlice l = left.slice(context);
   VPackSlice r = right.slice(context);
@@ -245,7 +276,8 @@ PrimaryIndex::PrimaryIndex(arangodb::LogicalCollection* collection)
       ExtractKey, IsEqualKeyElement, IsEqualElementElement,
       IsEqualElementElement,
       PrimaryIndexImpl::buildPrefix(ROCKSDB_MAP_TYPE_PRIMARY_INDEX, cid),
-      [this]() -> std::string { return this->context(); });
+      [this]() -> std::string { return this->context(); }, AppendKey,
+      KeyToString, ElementToString);
 }
 
 PrimaryIndex::~PrimaryIndex() { delete _primaryIndex; }

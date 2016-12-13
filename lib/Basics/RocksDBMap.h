@@ -39,6 +39,7 @@
 #include <thread>
 
 #include "Basics/MutexLocker.h"
+#include "Basics/RocksDBInstance.h"
 #include "Basics/gcd.h"
 #include "Basics/memory-map.h"
 #include "Basics/prime-numbers.h"
@@ -54,10 +55,6 @@
 #include <rocksdb/table.h>
 
 #include <string>
-
-static arangodb::Mutex _rocksDbMutex;
-static rocksdb::DB* _db;                    // single global instance
-static std::atomic<uint64_t> _mapCount(0);  // number of active maps
 
 namespace arangodb {
 namespace basics {
@@ -97,6 +94,12 @@ class RocksDBMap {
       IsEqualKeyElementFuncType;
   typedef std::function<bool(UserData*, Element const&, Element const&)>
       IsEqualElementElementFuncType;
+  typedef std::function<std::string()> ContextCallbackFuncType;
+  typedef std::function<void(void*, std::string*, Key const*)>
+      AppendKeyFuncType;
+  typedef std::function<std::string(void*, Key const&)> KeyToStringFuncType;
+  typedef std::function<std::string(void*, Element const&)>
+      ElementToStringFuncType;
 
   typedef std::function<bool(Element&)> CallbackElementFuncType;
 
@@ -107,11 +110,13 @@ class RocksDBMap {
   IsEqualElementElementFuncType const _isEqualElementElementByKey;
 
   std::string _mapPrefix;
-  std::string _dbFolder;
-  std::function<std::string()> _contextCallback;
-  std::function<std::string(Key const&)> _keyToString;
-  std::function<std::string(Element const&)> _elementToString;
+  ContextCallbackFuncType const _contextCallback;
+  AppendKeyFuncType const _appendKey;
+  KeyToStringFuncType const _keyToString;
+  ElementToStringFuncType const _elementToString;
 
+  arangodb::basics::RocksDBInstance _dbInstance;
+  rocksdb::DB* _db;
   uint64_t _size;
 
  public:
@@ -119,54 +124,32 @@ class RocksDBMap {
              IsEqualKeyElementFuncType isEqualKeyElement,
              IsEqualElementElementFuncType isEqualElementElement,
              IsEqualElementElementFuncType isEqualElementElementByKey,
-             std::string mapPrefix,
-             std::function<std::string()> contextCallback =
-                 []() -> std::string { return ""; },
-             std::function<std::string(Key const&)> keyToString =
-                 [](Key const&) -> std::string { return ""; },
-             std::function<std::string(Element const&)> elementToString =
-                 [](Element const&) -> std::string { return ""; })
+             std::string mapPrefix, ContextCallbackFuncType contextCallback =
+                                        []() -> std::string { return ""; },
+             AppendKeyFuncType appendKey = [](void*, std::string* buf,
+                                              Key const* key) -> void {
+               buf->append(reinterpret_cast<char const*>(key), sizeof(Key));
+             },
+             KeyToStringFuncType keyToString =
+                 [](void*, Key const&) -> std::string { return ""; },
+             ElementToStringFuncType elementToString =
+                 [](void*, Element const&) -> std::string { return ""; })
       : _extractKey(extractKey),
         _isEqualKeyElement(isEqualKeyElement),
         _isEqualElementElement(isEqualElementElement),
         _isEqualElementElementByKey(isEqualElementElementByKey),
         _mapPrefix(mapPrefix),
-        _dbFolder("/tmp/test_rocksdbmap"),
         _contextCallback(contextCallback),
+        _appendKey(appendKey),
         _keyToString(keyToString),
         _elementToString(elementToString),
+        _dbInstance(),
         _size(0) {
-    MUTEX_LOCKER(locker, _rocksDbMutex);
-    if (_db == nullptr) {
-      rocksdb::BlockBasedTableOptions table_options;
-      table_options.block_cache =
-          rocksdb::NewLRUCache(100 * 1048576);  // 100MB uncompressed cache
-
-      rocksdb::Options options;
-      options.table_factory.reset(
-          rocksdb::NewBlockBasedTableFactory(table_options));
-      options.create_if_missing = true;
-      options.prefix_extractor.reset(
-          rocksdb::NewFixedPrefixTransform(_mapPrefix.length()));
-
-      auto status = rocksdb::DB::Open(options, _dbFolder, &_db);
-      TRI_ASSERT(status.ok());
-      if (!status.ok()) {
-        std::cerr << status.ToString() << std::endl;
-      }
-      assert(status.ok());
-    }
-    _mapCount++;
+    _db = _dbInstance.db();
   }
 
   ~RocksDBMap() {
     truncate([](Element&) -> bool { return true; });
-    MUTEX_LOCKER(locker, _rocksDbMutex);
-    _mapCount--;
-    if (_mapCount.load() == 0) {
-      delete _db;
-      _db = nullptr;
-    }
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -187,15 +170,9 @@ class RocksDBMap {
   }
 
  private:
-  std::string prefixKey(std::string const* k) {
+  std::string prefixKey(void* userData, Key const* k) const {
     std::string buf(_mapPrefix.data(), _mapPrefix.size());
-    buf.append(k->data(), k->size());
-    return buf;
-  }
-
-  std::string prefixKey(Key const* k) const {
-    std::string buf(_mapPrefix.data(), _mapPrefix.size());
-    buf.append(reinterpret_cast<char const*>(k), sizeof(Key));
+    _appendKey(userData, &buf, k);
     return buf;
   }
 
@@ -274,15 +251,14 @@ class RocksDBMap {
   //////////////////////////////////////////////////////////////////////////////
 
   Element findByKey(UserData* userData, Key const* key) const {
-    std::string prefixedKey = prefixKey(key);
+    std::string prefixedKey = prefixKey(userData, key);
     rocksdb::Slice kSlice(prefixedKey);
     std::string eSlice(sizeof(Element), '\0');
     auto status = _db->Get(rocksdb::ReadOptions(), kSlice, &eSlice);
     if (status.ok()) {
       return unwrapElement(&eSlice);
     } else {
-      Element noE;
-      return noE;
+      return Element();
     }
   }
 
@@ -298,7 +274,7 @@ class RocksDBMap {
       return TRI_ERROR_ARANGO_UNIQUE_CONSTRAINT_VIOLATED;
     }
 
-    std::string prefixedKey = prefixKey(&key);
+    std::string prefixedKey = prefixKey(userData, &key);
     rocksdb::Slice kSlice(prefixedKey);
     auto eSlice = wrapElement(&element);
     auto status = _db->Put(rocksdb::WriteOptions(), kSlice, eSlice);
@@ -316,7 +292,7 @@ class RocksDBMap {
 
   int update(UserData* userData, Element const& element) {
     Key key = _extractKey(userData, element);
-    std::string prefixedKey = prefixKey(&key);
+    std::string prefixedKey = prefixKey(userData, &key);
     rocksdb::Slice kSlice(prefixedKey);
     auto eSlice = wrapElement(&element);
     auto status = _db->Delete(rocksdb::WriteOptions(), kSlice);
@@ -420,7 +396,7 @@ class RocksDBMap {
   //////////////////////////////////////////////////////////////////////////////
 
   Element removeByKey(UserData* userData, Key const* key) {
-    std::string prefixedKey = prefixKey(key);
+    std::string prefixedKey = prefixKey(userData, key);
     rocksdb::Slice kSlice(prefixedKey);
     std::string eSlice(sizeof(Element), '\0');
     auto status = _db->Get(rocksdb::ReadOptions(), kSlice, &eSlice);
@@ -547,9 +523,24 @@ class RocksDBMap {
   Element findRandom(UserData* userData, RocksDBPosition& initialPosition,
                      RocksDBPosition& position, uint64_t& step,
                      uint64_t& total) const {
-    // TODO: do this for indexes
-    Element e;
-    return e;
+    if (position.bucketId == SIZE_MAX || position.bucketId == SIZE_MAX - 1) {
+      auto options = rocksdb::ReadOptions();
+      options.total_order_seek = true;
+      position.it = _db->NewIterator(options);
+      position.it->SeekToLast();
+      position.bucketId = 0;
+    } else {
+      position.it->Prev();
+    }
+    for (; position.it->Valid() && !position.it->key().starts_with(_mapPrefix);
+         position.it->Prev())
+      ;
+
+    if (position.it->Valid() && position.it->key().starts_with(_mapPrefix)) {
+      return unwrapIterator(position.it);
+    } else {
+      return Element();
+    }
   }
 };
 }  // namespace basics

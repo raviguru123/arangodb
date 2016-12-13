@@ -60,13 +60,29 @@ static bool IsEqualElementElement(void*, MMFilesDocumentPosition const& left,
   return left.revisionId() == right.revisionId();
 }
 
+static void AppendKey(void*, std::string* buf, TRI_voc_rid_t const* key) {
+  buf->append(reinterpret_cast<char const*>(key), sizeof(TRI_voc_rid_t));
+}
+static std::string KeyToString(void*, TRI_voc_rid_t const& k) {
+  return std::to_string(k);
+}
+
+static std::string ElementToString(void*, MMFilesDocumentPosition const& e) {
+  return std::string("(")
+      .append(std::to_string(e.revisionId()))
+      .append(", ")
+      .append(std::to_string(e.fid()))
+      .append(")");
+}
+
 }  // namespace
 
 MMFilesRevisionsCache::MMFilesRevisionsCache(LogicalCollection* c)
     : _positions(ExtractKey, IsEqualKeyElement, IsEqualElementElement,
                  IsEqualElementElement,
                  Cache::buildPrefix(ROCKSDB_MAP_TYPE_REVISIONS_CACHE, c->cid()),
-                 []() -> std::string { return "mmfiles revisions"; }) {}
+                 []() -> std::string { return "mmfiles revisions"; }, AppendKey,
+                 KeyToString, ElementToString) {}
 
 MMFilesRevisionsCache::~MMFilesRevisionsCache() {}
 
