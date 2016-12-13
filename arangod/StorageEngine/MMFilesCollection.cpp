@@ -103,11 +103,11 @@ int MMFilesCollection::OpenIteratorHandleDocumentMarker(
 
   // no primary index lock required here because we are the only ones reading
   // from the index ATM
-  SimpleIndexElement* found =
-      state->_primaryIndex->lookupKeyRef(trx, keySlice, state->_mmdr);
+  SimpleIndexElement found =
+      state->_primaryIndex->lookupKey(trx, keySlice, state->_mmdr);
 
   // it is a new entry
-  if (found == nullptr || found->revisionId() == 0) {
+  if (found.revisionId() == 0) {
     c->insertRevision(revisionId, vpack, fid, false, false);
 
     // insert into primary index
@@ -130,10 +130,11 @@ int MMFilesCollection::OpenIteratorHandleDocumentMarker(
 
   // it is an update
   else {
-    TRI_voc_rid_t const oldRevisionId = found->revisionId();
+    TRI_voc_rid_t const oldRevisionId = found.revisionId();
     // update the revision id in primary index
-    found->updateRevisionId(revisionId,
-                            static_cast<uint32_t>(keySlice.begin() - vpack));
+    found.updateRevisionId(revisionId,
+                           static_cast<uint32_t>(keySlice.begin() - vpack));
+    state->_primaryIndex->update(trx, found);
 
     MMFilesDocumentPosition const old = c->lookupRevision(oldRevisionId);
 

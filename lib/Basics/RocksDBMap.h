@@ -28,6 +28,7 @@
 #define ARANGODB_BASICS_ROCKSDB_MAP_H 1
 
 #define ROCKSDB_MAP_TYPE_REVISIONS_CACHE 0
+#define ROCKSDB_MAP_TYPE_PRIMARY_INDEX 1
 
 #include "Basics/Common.h"
 
@@ -55,8 +56,8 @@
 #include <string>
 
 static arangodb::Mutex _rocksDbMutex;
-static rocksdb::DB* _db;        // single global instance
-static uint64_t _mapCount = 0;  // number of active maps
+static rocksdb::DB* _db;                    // single global instance
+static std::atomic<uint64_t> _mapCount(0);  // number of active maps
 
 namespace arangodb {
 namespace basics {
@@ -150,6 +151,9 @@ class RocksDBMap {
 
       auto status = rocksdb::DB::Open(options, _dbFolder, &_db);
       TRI_ASSERT(status.ok());
+      if (!status.ok()) {
+        std::cerr << status.ToString() << std::endl;
+      }
       assert(status.ok());
     }
     _mapCount++;
@@ -159,7 +163,7 @@ class RocksDBMap {
     truncate([](Element&) -> bool { return true; });
     MUTEX_LOCKER(locker, _rocksDbMutex);
     _mapCount--;
-    if (_mapCount == 0) {
+    if (_mapCount.load() == 0) {
       delete _db;
       _db = nullptr;
     }
@@ -183,6 +187,12 @@ class RocksDBMap {
   }
 
  private:
+  std::string prefixKey(std::string const* k) {
+    std::string buf(_mapPrefix.data(), _mapPrefix.size());
+    buf.append(k->data(), k->size());
+    return buf;
+  }
+
   std::string prefixKey(Key const* k) const {
     std::string buf(_mapPrefix.data(), _mapPrefix.size());
     buf.append(reinterpret_cast<char const*>(k), sizeof(Key));
@@ -206,7 +216,6 @@ class RocksDBMap {
     auto it = _db->NewIterator(rocksdb::ReadOptions());
     for (it->Seek(_mapPrefix); it->Valid() && it->key().starts_with(_mapPrefix);
          it->Next()) {
-      // TODO: invoke callback on all elements, then delete them
       Element e = unwrapIterator(it);
       callback(e);
       auto status = _db->Delete(rocksdb::WriteOptions(), it->key());
@@ -277,11 +286,6 @@ class RocksDBMap {
     }
   }
 
-  Element* findByKeyRef(UserData* userData, Key const* key) const {
-    // TODO: do this to support primary index
-    return reinterpret_cast<Element*>(nullptr);
-  }
-
   //////////////////////////////////////////////////////////////////////////////
   /// @brief adds an element to the array
   //////////////////////////////////////////////////////////////////////////////
@@ -307,14 +311,106 @@ class RocksDBMap {
   }
 
   //////////////////////////////////////////////////////////////////////////////
+  /// @brief adds an element to the array
+  //////////////////////////////////////////////////////////////////////////////
+
+  int update(UserData* userData, Element const& element) {
+    Key key = _extractKey(userData, element);
+    std::string prefixedKey = prefixKey(&key);
+    rocksdb::Slice kSlice(prefixedKey);
+    auto eSlice = wrapElement(&element);
+    auto status = _db->Delete(rocksdb::WriteOptions(), kSlice);
+    TRI_ASSERT(status.ok());
+    status = _db->Put(rocksdb::WriteOptions(), kSlice, eSlice);
+    if (status.ok()) {
+      return TRI_ERROR_NO_ERROR;
+    } else {
+      return TRI_ERROR_ARANGO_UNIQUE_CONSTRAINT_VIOLATED;  // wrong error
+    }
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
   /// @brief adds multiple elements to the array
   //////////////////////////////////////////////////////////////////////////////
 
   int batchInsert(std::function<void*()> const& contextCreator,
                   std::function<void(void*)> const& contextDestroyer,
                   std::vector<Element> const* data, size_t numThreads) {
-    // TODO: do this for indexes
-    return TRI_ERROR_NO_ERROR;
+    if (data->empty()) {
+      // nothing to do
+      return TRI_ERROR_NO_ERROR;
+    }
+
+    std::atomic<int> res(TRI_ERROR_NO_ERROR);
+    std::vector<Element> const& elements = *(data);
+
+    if (elements.size() < numThreads) {
+      numThreads = elements.size();
+    }
+
+    TRI_ASSERT(numThreads > 0);
+
+    size_t const chunkSize = elements.size() / numThreads;
+
+    // partition the work into some threads
+    {
+      auto partitioner = [&](size_t lower, size_t upper,
+                             void* userData) -> void {
+        for (auto i = lower; i < upper; i++) {
+          auto status = insert(userData, elements[i]);
+          if (status != TRI_ERROR_NO_ERROR) {
+            res = status;
+            break;
+          }
+        }
+
+        contextDestroyer(userData);
+      };
+
+      std::vector<std::thread> threads;
+      threads.reserve(numThreads);
+
+      try {
+        for (size_t i = 0; i < numThreads; ++i) {
+          size_t lower = i * chunkSize;
+          size_t upper = (i + 1) * chunkSize;
+
+          if (i + 1 == numThreads) {
+            // last chunk. account for potential rounding errors
+            upper = elements.size();
+          } else if (upper > elements.size()) {
+            upper = elements.size();
+          }
+
+          threads.emplace_back(
+              std::thread(partitioner, lower, upper, contextCreator()));
+        }
+      } catch (...) {
+        res = TRI_ERROR_OUT_OF_MEMORY;
+      }
+
+      for (size_t i = 0; i < threads.size(); ++i) {
+        // must join threads, otherwise the program will crash
+        threads[i].join();
+      }
+    }
+
+    if (res.load() != TRI_ERROR_NO_ERROR) {
+      return res.load();
+    }
+
+    if (res.load() != TRI_ERROR_NO_ERROR) {
+      // Rollback such that the data can be deleted outside
+      void* userData = contextCreator();
+      try {
+        for (auto const& d : *data) {
+          remove(userData, d);
+        }
+      } catch (...) {
+      }
+      contextDestroyer(userData);
+    }
+    return res.load();
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -358,7 +454,6 @@ class RocksDBMap {
     auto it = _db->NewIterator(rocksdb::ReadOptions());
     for (it->Seek(_mapPrefix); it->Valid() && it->key().starts_with(_mapPrefix);
          it->Next()) {
-      // TODO: invoke callback on all elements, then delete them
       Element e = unwrapIterator(it);
       ;
       if (!callback(e)) {
@@ -376,7 +471,6 @@ class RocksDBMap {
     auto it = _db->NewIterator(rocksdb::ReadOptions());
     for (it->Seek(_mapPrefix); it->Valid() && it->key().starts_with(_mapPrefix);
          it->Next()) {
-      // TODO: invoke callback on all elements, then delete them
       Element e = unwrapIterator(it);
       if (!callback(e)) {
         return;
