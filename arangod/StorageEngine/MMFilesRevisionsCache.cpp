@@ -80,8 +80,7 @@ static std::string ElementToString(void*, MMFilesDocumentPosition const& e) {
 MMFilesRevisionsCache::MMFilesRevisionsCache(LogicalCollection* c)
     : _positions(ExtractKey, IsEqualKeyElement, IsEqualElementElement,
                  IsEqualElementElement,
-                 Cache::buildPrefix(ROCKSDB_MAP_TYPE_REVISIONS_CACHE, c->cid()),
-                 []() -> std::string { return "mmfiles revisions"; }, AppendKey,
+                 []() -> std::string { return "mmfiles revisions"; },
                  KeyToString, ElementToString) {}
 
 MMFilesRevisionsCache::~MMFilesRevisionsCache() {}

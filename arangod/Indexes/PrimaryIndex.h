@@ -26,7 +26,8 @@
 
 //#include "Basics/AssocUnique.h"
 #include "Basics/Common.h"
-#include "Basics/RocksDBMap.h"
+//#include "Basics/RocksDBMap.h"
+#include "Basics/BTreeMap.h"
 #include "Indexes/Index.h"
 #include "Indexes/IndexIterator.h"
 #include "VocBase/voc-types.h"
@@ -43,8 +44,12 @@ class Transaction;
 
 // typedef arangodb::basics::AssocUnique<uint8_t, SimpleIndexElement>
 // PrimaryIndexImpl;
-typedef arangodb::basics::RocksDBMap<std::string, SimpleIndexElement>
+typedef arangodb::basics::BTreeMap<std::string, SimpleIndexElement>
     PrimaryIndexImpl;
+typedef arangodb::basics::BTreePosition<std::string, SimpleIndexElement>
+    PrimaryIndexPosition;
+typedef arangodb::basics::BTreeRevPosition<std::string, SimpleIndexElement>
+    PrimaryIndexRevPosition;
 
 class PrimaryIndexIterator final : public IndexIterator {
  public:
@@ -85,7 +90,8 @@ class AllIndexIterator final : public IndexIterator {
 
  private:
   PrimaryIndexImpl const* _index;
-  arangodb::basics::RocksDBPosition _position;
+  PrimaryIndexPosition _position;
+  PrimaryIndexRevPosition _revPosition;
   bool const _reverse;
   uint64_t _total;
 };
@@ -106,8 +112,8 @@ class AnyIndexIterator final : public IndexIterator {
 
  private:
   PrimaryIndexImpl const* _index;
-  arangodb::basics::RocksDBPosition _initial;
-  arangodb::basics::RocksDBPosition _position;
+  PrimaryIndexPosition _initial;
+  PrimaryIndexPosition _position;
   uint64_t _step;
   uint64_t _total;
 };
@@ -166,9 +172,9 @@ class PrimaryIndex final : public Index {
   ///        Returns nullptr if all documents have been returned.
   ///        Convention: position === 0 indicates a new start.
   ///        DEPRECATED
-  SimpleIndexElement lookupSequential(
-      arangodb::Transaction*, arangodb::basics::RocksDBPosition& position,
-      uint64_t& total);
+  SimpleIndexElement lookupSequential(arangodb::Transaction*,
+                                      PrimaryIndexPosition& position,
+                                      uint64_t& total);
 
   /// @brief request an iterator over all elements in the index in
   ///        a sequential order.
@@ -186,8 +192,8 @@ class PrimaryIndex final : public Index {
   ///        Returns nullptr if all documents have been returned.
   ///        Convention: position === UINT64_MAX indicates a new start.
   ///        DEPRECATED
-  SimpleIndexElement lookupSequentialReverse(
-      arangodb::Transaction*, arangodb::basics::RocksDBPosition& position);
+  SimpleIndexElement lookupSequentialReverse(arangodb::Transaction*,
+                                             PrimaryIndexRevPosition& position);
 
   int insertKey(arangodb::Transaction*, TRI_voc_rid_t revisionId,
                 arangodb::velocypack::Slice const&);

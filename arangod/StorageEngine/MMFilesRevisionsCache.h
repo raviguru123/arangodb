@@ -27,7 +27,8 @@
 #include "Basics/Common.h"
 //#include "Basics/AssocUnique.h"
 #include "Basics/ReadWriteLock.h"
-#include "Basics/RocksDBMap.h"
+//#include "Basics/RocksDBMap.h"
+#include "Basics/BTreeMap.h"
 #include "StorageEngine/MMFilesDocumentPosition.h"
 #include "VocBase/LogicalCollection.h"
 #include "VocBase/voc-types.h"
@@ -38,7 +39,7 @@ namespace arangodb {
 
 class MMFilesRevisionsCache {
  public:
-  typedef arangodb::basics::RocksDBMap<TRI_voc_rid_t, MMFilesDocumentPosition>
+  typedef arangodb::basics::BTreeMap<TRI_voc_rid_t, MMFilesDocumentPosition>
       Cache;
   MMFilesRevisionsCache(LogicalCollection*);
   ~MMFilesRevisionsCache();

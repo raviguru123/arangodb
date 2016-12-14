@@ -196,7 +196,7 @@ AllIndexIterator::AllIndexIterator(LogicalCollection* collection,
 IndexLookupResult AllIndexIterator::next() {
   SimpleIndexElement element;
   if (_reverse) {
-    element = _index->findSequentialReverse(&_context, _position);
+    element = _index->findSequentialReverse(&_context, _revPosition);
   } else {
     element = _index->findSequential(&_context, _position, _total);
   }
@@ -261,23 +261,15 @@ PrimaryIndex::PrimaryIndex(arangodb::LogicalCollection* collection)
                                                   false)}}),
             true, false),
       _primaryIndex(nullptr) {
-  TRI_voc_cid_t cid = 1;
-
-  if (collection != nullptr) {
-    // collection is a nullptr in the coordinator case
-    cid = collection->cid();
-  }
-
   /*_primaryIndex = new PrimaryIndexImpl(
       HashKey, HashElement, IsEqualKeyElement, IsEqualElementElement,
       IsEqualElementElement, indexBuckets,
       [this]() -> std::string { return this->context(); });*/
-  _primaryIndex = new PrimaryIndexImpl(
-      ExtractKey, IsEqualKeyElement, IsEqualElementElement,
-      IsEqualElementElement,
-      PrimaryIndexImpl::buildPrefix(ROCKSDB_MAP_TYPE_PRIMARY_INDEX, cid),
-      [this]() -> std::string { return this->context(); }, AppendKey,
-      KeyToString, ElementToString);
+  _primaryIndex =
+      new PrimaryIndexImpl(ExtractKey, IsEqualKeyElement, IsEqualElementElement,
+                           IsEqualElementElement,
+                           [this]() -> std::string { return this->context(); },
+                           KeyToString, ElementToString);
 }
 
 PrimaryIndex::~PrimaryIndex() { delete _primaryIndex; }
@@ -384,7 +376,7 @@ key.begin());
 ///        Convention: position === 0 indicates a new start.
 ///        DEPRECATED
 SimpleIndexElement PrimaryIndex::lookupSequential(
-    arangodb::Transaction* trx, arangodb::basics::RocksDBPosition& position,
+    arangodb::Transaction* trx, arangodb::PrimaryIndexPosition& position,
     uint64_t& total) {
   ManagedDocumentResult result(trx);
   IndexLookupContext context(trx, _collection, &result, 1);
@@ -414,7 +406,7 @@ IndexIterator* PrimaryIndex::anyIterator(arangodb::Transaction* trx,
 ///        Convention: position === UINT64_MAX indicates a new start.
 ///        DEPRECATED
 SimpleIndexElement PrimaryIndex::lookupSequentialReverse(
-    arangodb::Transaction* trx, arangodb::basics::RocksDBPosition& position) {
+    arangodb::Transaction* trx, arangodb::PrimaryIndexRevPosition& position) {
   ManagedDocumentResult result(trx);
   IndexLookupContext context(trx, _collection, &result, 1);
   return _primaryIndex->findSequentialReverse(&context, position);

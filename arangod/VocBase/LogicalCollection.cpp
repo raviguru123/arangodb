@@ -2769,7 +2769,7 @@ int LogicalCollection::fillIndexBatch(arangodb::Transaction* trx,
   documents.reserve(blockSize);
 
   if (nrUsed > 0) {
-    arangodb::basics::RocksDBPosition position;
+    arangodb::PrimaryIndexPosition position;
     uint64_t total = 0;
 
     while (true) {
@@ -2839,7 +2839,7 @@ int LogicalCollection::fillIndexSequential(arangodb::Transaction* trx,
     int loops = 0;
 #endif
 
-    arangodb::basics::RocksDBPosition position;
+    arangodb::PrimaryIndexPosition position;
     uint64_t total = 0;
     ManagedDocumentResult result(trx);
 

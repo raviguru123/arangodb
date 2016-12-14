@@ -54,13 +54,8 @@ namespace basics {
 template <class Key, class Element>
 struct BTreePosition {
  private:
-  typedef typename btree::safe_btree_map<Key, Element>::const_iterator fIter;
-  typedef typename btree::safe_btree_map<Key, Element>::const_reverse_iterator
-      rIter;
-  union BTreeIterator {
-    fIter f;
-    rIter r;
-  };
+  typedef typename btree::safe_btree_map<Key, Element>::const_iterator
+      BTreeIterator;
 
  public:
   size_t bucketId;
@@ -74,20 +69,43 @@ struct BTreePosition {
   }
 
   void reset() { bucketId = SIZE_MAX - 1; }
-  void transfer(fIter const& other) {
-    auto length = sizeof(other);
-    auto buf = new char[length];
-    it = reinterpret_cast<BTreeIterator*>(buf);
-    it->f = other;
+  void transfer(BTreeIterator const& other) {
+    if (it != nullptr) {
+      delete it;
+    }
+    it = new BTreeIterator(other);
   }
-  void transfer(rIter const& other) {
-    auto length = sizeof(other);
-    auto buf = new char[length];
-    it = reinterpret_cast<BTreeIterator*>(buf);
-    it->r = other;
+  bool operator==(BTreePosition const& other) const {
+    return it == other.it && bucketId == other.bucketId;
+  }
+};
+
+template <class Key, class Element>
+struct BTreeRevPosition {
+ private:
+  typedef typename btree::safe_btree_map<Key, Element>::const_reverse_iterator
+      BTreeRevIterator;
+
+ public:
+  size_t bucketId;
+  BTreeRevIterator* it;
+
+  BTreeRevPosition() : bucketId(SIZE_MAX), it(nullptr) {}
+  ~BTreeRevPosition() {
+    if (it != nullptr) {
+      delete it;
+    }
   }
 
-  bool operator==(BTreePosition const& other) const {
+  void reset() { bucketId = SIZE_MAX - 1; }
+  void transfer(BTreeRevIterator const& other) {
+    if (it != nullptr) {
+      delete it;
+    }
+    it = new BTreeRevIterator(other);
+  }
+
+  bool operator==(BTreeRevPosition const& other) const {
     return it == other.it && bucketId == other.bucketId;
   }
 };
@@ -372,14 +390,23 @@ class BTreeMap {
   //////////////////////////////////////////////////////////////////////////////
 
   void invokeOnAllElementsForRemoval(CallbackElementFuncType callback) {
-    for (auto it = _tree.begin(); it != _tree.end(); it++) {
+    auto it = _tree.begin();
+    while (it != _tree.end()) {
       Element e = (*it).second;
+      Key lastKey = (*it).first;
+      auto oldSize = _size;
       if (!callback(e)) {
         return;
       }
-      if (size == 0) {
+      if (_size == 0) {
         return;
       }
+      // find next element
+      auto next = _tree.lower_bound(lastKey);
+      if (_size == oldSize && next != _tree.end()) {
+        next++;
+      }
+      it = next;
     }
   }
 
@@ -401,11 +428,14 @@ class BTreeMap {
       total = _size;
       position.bucketId = 0;
     } else {
-      position.it->f++;
+      if (position.it == nullptr || *(position.it) == _tree.end()) {
+        return Element();
+      }
+      (*(position.it))++;
     }
 
-    if (position.it->f != _tree.end()) {
-      return (*(position.it->f)).second;
+    if (*(position.it) != _tree.end()) {
+      return (**(position.it)).second;
     } else {
       return Element();
     }
@@ -418,17 +448,20 @@ class BTreeMap {
   ///        Convention: position === UINT64_MAX indicates a new start.
   //////////////////////////////////////////////////////////////////////////////
 
-  Element findSequentialReverse(UserData* userData,
-                                BTreePosition<Key, Element>& position) const {
+  Element findSequentialReverse(
+      UserData* userData, BTreeRevPosition<Key, Element>& position) const {
     if (position.bucketId == SIZE_MAX || position.bucketId == SIZE_MAX - 1) {
       position.transfer(_tree.rbegin());
       position.bucketId = 0;
     } else {
-      position.it->r++;
+      if (position.it == nullptr || *(position.it) == _tree.rend()) {
+        return Element();
+      }
+      (*(position.it))++;
     }
 
-    if (position.it->r != _tree.rend()) {
-      return (*(position.it->r)).second;
+    if (*(position.it) != _tree.rend()) {
+      return (**(position.it)).second;
     } else {
       return Element();
     }
@@ -450,11 +483,14 @@ class BTreeMap {
       total = _size;
       position.bucketId = 0;
     } else {
-      position.it->f++;
+      if (position.it == nullptr || *(position.it) == _tree.end()) {
+        return Element();
+      }
+      (*(position.it))++;
     }
 
-    if (position.it->f != _tree.end()) {
-      return (*(position.it->f)).second;
+    if (*(position.it) != _tree.end()) {
+      return (**(position.it)).second;
     } else {
       return Element();
     }

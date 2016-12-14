@@ -52,6 +52,7 @@ using namespace std;
 #define KEY(name, k) Key name(k)
 
 #define POSITION(name) arangodb::basics::BTreePosition<Key, Element> name
+#define REV_POSITION(name) arangodb::basics::BTreeRevPosition<Key, Element> name
 
 struct Key {
   uint64_t k;
@@ -245,6 +246,45 @@ BOOST_AUTO_TEST_CASE(tst_insert_unique_violation) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// @brief test unique reinsertion
+////////////////////////////////////////////////////////////////////////////////
+
+BOOST_AUTO_TEST_CASE(tst_reinsert) {
+  INIT_MAP(m1);
+
+  ELEMENT(empty, 0, 0);
+  ELEMENT(e1, 1, 123);
+  KEY(k1, 1);
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e1));
+  BOOST_CHECK_EQUAL((uint64_t)1, m1.size());
+  BOOST_CHECK_EQUAL(e1, m1.find(nullptr, e1));
+  BOOST_CHECK_EQUAL(e1, m1.findByKey(nullptr, &k1));
+
+  BOOST_CHECK_EQUAL(e1, m1.remove(nullptr, e1));
+  BOOST_CHECK_EQUAL((uint64_t)0, m1.size());
+  BOOST_CHECK_EQUAL(empty, m1.find(nullptr, e1));
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e1));
+  BOOST_CHECK_EQUAL((uint64_t)1, m1.size());
+  BOOST_CHECK_EQUAL(e1, m1.find(nullptr, e1));
+  BOOST_CHECK_EQUAL(e1, m1.findByKey(nullptr, &k1));
+
+  m1.truncate(CallbackElement);
+  BOOST_CHECK_EQUAL((uint64_t)0, m1.size());
+
+  BOOST_CHECK_EQUAL(TRI_ERROR_NO_ERROR, m1.insert(nullptr, e1));
+  BOOST_CHECK_EQUAL((uint64_t)1, m1.size());
+  BOOST_CHECK_EQUAL(e1, m1.find(nullptr, e1));
+  BOOST_CHECK_EQUAL(e1, m1.findByKey(nullptr, &k1));
+
+  BOOST_CHECK_EQUAL(e1, m1.remove(nullptr, e1));
+  BOOST_CHECK_EQUAL((uint64_t)0, m1.size());
+  BOOST_CHECK_EQUAL(empty, m1.find(nullptr, e1));
+
+  DESTROY_MAP(m1);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// @brief test truncation with a single map
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -363,6 +403,7 @@ BOOST_AUTO_TEST_CASE(tst_iter_fwd_one) {
   BOOST_CHECK_EQUAL(e2, m1.findSequential(nullptr, p1, total));
   BOOST_CHECK_EQUAL(e3, m1.findSequential(nullptr, p1, total));
   BOOST_CHECK_EQUAL(empty, m1.findSequential(nullptr, p1, total));
+  BOOST_CHECK_EQUAL(empty, m1.findSequential(nullptr, p1, total));
 
   DESTROY_MAP(m1);
 }
@@ -418,6 +459,8 @@ BOOST_AUTO_TEST_CASE(tst_iter_fwd_two) {
   BOOST_CHECK_EQUAL(e5, m1.findSequential(nullptr, p1, total1));
   BOOST_CHECK_EQUAL(e6, m2.findSequential(nullptr, p2, total2));
   BOOST_CHECK_EQUAL(empty, m1.findSequential(nullptr, p1, total1));
+  BOOST_CHECK_EQUAL(empty, m1.findSequential(nullptr, p1, total1));
+  BOOST_CHECK_EQUAL(empty, m2.findSequential(nullptr, p2, total2));
   BOOST_CHECK_EQUAL(empty, m2.findSequential(nullptr, p2, total2));
 
   DESTROY_MAP(m1);
@@ -448,10 +491,11 @@ BOOST_AUTO_TEST_CASE(tst_iter_rev_one) {
   BOOST_CHECK_EQUAL((uint64_t)3, m1.size());
   BOOST_CHECK_EQUAL(e3, m1.find(nullptr, e3));
 
-  POSITION(p1);
+  REV_POSITION(p1);
   BOOST_CHECK_EQUAL(e3, m1.findSequentialReverse(nullptr, p1));
   BOOST_CHECK_EQUAL(e2, m1.findSequentialReverse(nullptr, p1));
   BOOST_CHECK_EQUAL(e1, m1.findSequentialReverse(nullptr, p1));
+  BOOST_CHECK_EQUAL(empty, m1.findSequentialReverse(nullptr, p1));
   BOOST_CHECK_EQUAL(empty, m1.findSequentialReverse(nullptr, p1));
 
   DESTROY_MAP(m1);
@@ -497,8 +541,8 @@ BOOST_AUTO_TEST_CASE(tst_iter_rev_two) {
   BOOST_CHECK_EQUAL((uint64_t)3, m2.size());
   BOOST_CHECK_EQUAL(e6, m2.find(nullptr, e6));
 
-  POSITION(p1);
-  POSITION(p2);
+  REV_POSITION(p1);
+  REV_POSITION(p2);
   BOOST_CHECK_EQUAL(e5, m1.findSequentialReverse(nullptr, p1));
   BOOST_CHECK_EQUAL(e6, m2.findSequentialReverse(nullptr, p2));
   BOOST_CHECK_EQUAL(e3, m1.findSequentialReverse(nullptr, p1));
@@ -506,6 +550,8 @@ BOOST_AUTO_TEST_CASE(tst_iter_rev_two) {
   BOOST_CHECK_EQUAL(e1, m1.findSequentialReverse(nullptr, p1));
   BOOST_CHECK_EQUAL(e2, m2.findSequentialReverse(nullptr, p2));
   BOOST_CHECK_EQUAL(empty, m1.findSequentialReverse(nullptr, p1));
+  BOOST_CHECK_EQUAL(empty, m1.findSequentialReverse(nullptr, p1));
+  BOOST_CHECK_EQUAL(empty, m2.findSequentialReverse(nullptr, p2));
   BOOST_CHECK_EQUAL(empty, m2.findSequentialReverse(nullptr, p2));
 
   DESTROY_MAP(m1);
