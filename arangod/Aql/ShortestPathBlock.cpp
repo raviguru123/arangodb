@@ -398,6 +398,8 @@ ShortestPathBlock::ShortestPathBlock(ExecutionEngine* engine,
   _path = std::make_unique<arangodb::traverser::ShortestPath>();
 
   if (arangodb::ServerState::instance()->isCoordinator()) {
+    _engines = ep->engines();
+
     if (_opts->usesWeight()) {
       _finder.reset(new ArangoDBPathFinder(
           EdgeWeightExpanderCluster(this, false),
@@ -406,8 +408,7 @@ ShortestPathBlock::ShortestPathBlock(ExecutionEngine* engine,
 #ifdef USE_ENTERPRISE
       if (ep->isSmart()) {
         _finder.reset(new SmartGraphConstDistanceFinder(
-            static_cast<traverser::SmartGraphShortestPathOptions*>(_opts), _engines,
-            engine->getQuery()->trx()->resolver()));
+            _opts, _engines, engine->getQuery()->trx()->resolver()));
       } else {
 #endif
         _finder.reset(new ArangoDBConstDistancePathFinder(
@@ -427,10 +428,6 @@ ShortestPathBlock::ShortestPathBlock(ExecutionEngine* engine,
           ConstDistanceExpanderLocal(this, false),
           ConstDistanceExpanderLocal(this, true)));
     }
-  }
-
-  if (arangodb::ServerState::instance()->isCoordinator()) {
-    _engines = ep->engines();
   }
 }
 
