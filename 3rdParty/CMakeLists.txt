@@ -112,6 +112,12 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/snappy/google-snappy-d53de18)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/rocksdb)
 
 ################################################################################
+## CPP-BTREE
+################################################################################
+
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/cpp-btree)
+
+################################################################################
 ## LINK_DIRECTORIES
 ################################################################################
 

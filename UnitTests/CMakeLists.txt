@@ -17,6 +17,7 @@ add_executable(${TEST_BASICS_SUITE}
   Basics/json-test.cpp
   Basics/hashes-test.cpp
   Basics/associative-multi-pointer-test.cpp
+  Basics/BTreeMapTest.cpp
   Basics/RocksDBMapTest.cpp
   Basics/associative-multi-pointer-nohashcache-test.cpp
   Basics/skiplist-test.cpp

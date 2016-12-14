@@ -149,7 +149,7 @@ find_program (GIT_EXE git)
 if (DEFINED GIT_EXE AND IS_DIRECTORY "${CMAKE_SOURCE_DIR}/.git")
   execute_process(
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    
+
     COMMAND ${GIT_EXE} describe --all --tags --long --dirty=-dirty
     OUTPUT_VARIABLE GIT_OUTPUT)
 
@@ -261,7 +261,7 @@ endif ()
 
 math(EXPR BITS "8*${CMAKE_SIZEOF_VOID_P}")
 add_definitions("-DARANGODB_BITS=${BITS}")
-        
+
 ################################################################################
 ## COMPILER FEATURES
 ################################################################################
@@ -330,12 +330,12 @@ if (MSVC)
   add_definitions("-D_CRT_SECURE_NO_WARNINGS=1")
   add_definitions("-DFD_SETSIZE=8192")
   add_definitions("-DU_STATIC_IMPLEMENTATION=1")
-  
+
   # https://blogs.msdn.microsoft.com/vcblog/2016/04/14/stl-fixes-in-vs-2015-update-2/
   # https://connect.microsoft.com/VisualStudio/feedback/details/1892487
   # http://lists.boost.org/boost-users/2016/04/85968.php
   add_definitions("-D_ENABLE_ATOMIC_ALIGNMENT_FIX")
-  
+
   set(MSVC_LIBS Shlwapi.lib;crypt32.lib;WINMM.LIB;Ws2_32.lib)
 
   set(CMAKE_EXE_LINKER_FLAGS
@@ -363,7 +363,7 @@ if (APPLE)
     endif ()
   endif ()
 
-  if (USE_LOCAL_CLOCK_GETTIME) 
+  if (USE_LOCAL_CLOCK_GETTIME)
     message(STATUS "using a home-made clock_gettime")
   endif ()
 endif ()
@@ -376,6 +376,7 @@ include_directories(${PROJECT_SOURCE_DIR}/3rdParty/linenoise-ng/include)
 include_directories(${PROJECT_SOURCE_DIR}/3rdParty/linenoise-ng/src)
 include_directories(${PROJECT_SOURCE_DIR}/3rdParty/velocypack/include)
 include_directories(${PROJECT_SOURCE_DIR}/3rdParty/rocksdb/rocksdb/include)
+include_directories(${PROJECT_SOURCE_DIR}/3rdParty/cpp-btree)
 
 include_directories(${PROJECT_BINARY_DIR})
 include_directories(${PROJECT_BINARY_DIR}/lib)
