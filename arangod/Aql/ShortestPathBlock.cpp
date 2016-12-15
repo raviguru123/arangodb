@@ -348,12 +348,16 @@ ShortestPathBlock::ShortestPathBlock(ExecutionEngine* engine,
                                      ShortestPathNode const* ep)
     : ExecutionBlock(engine, ep),
       _vertexVar(nullptr),
+      _vertexReg(ExecutionNode::MaxRegisterId),
       _edgeVar(nullptr),
       _opts(ep->options()),
+      _edgeReg(ExecutionNode::MaxRegisterId),
       _posInPath(0),
       _pathLength(0),
       _path(nullptr),
+      _startReg(ExecutionNode::MaxRegisterId),
       _useStartRegister(false),
+      _targetReg(ExecutionNode::MaxRegisterId),
       _useTargetRegister(false),
       _usedConstant(false) {
   _mmdr.reset(new ManagedDocumentResult(_trx));

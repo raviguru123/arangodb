@@ -144,6 +144,7 @@ TraverserOptions::TraverserOptions(
     arangodb::Transaction* trx, VPackSlice const& slice)
     : BaseTraverserOptions(trx),
       _baseVertexExpression(nullptr),
+      _traverser(nullptr),
       minDepth(1),
       maxDepth(1),
       useBreadthFirst(false),
@@ -365,6 +366,7 @@ TraverserOptions::TraverserOptions(
     arangodb::aql::Query* query, VPackSlice info, VPackSlice collections)
     : BaseTraverserOptions(query, info, collections),
       _baseVertexExpression(nullptr),
+      _traverser(nullptr),
       minDepth(1),
       maxDepth(1),
       useBreadthFirst(false),
@@ -500,6 +502,7 @@ TraverserOptions::TraverserOptions(
     TraverserOptions const& other)
     : BaseTraverserOptions(other),
       _baseVertexExpression(nullptr),
+      _traverser(nullptr),
       minDepth(other.minDepth),
       maxDepth(other.maxDepth),
       useBreadthFirst(other.useBreadthFirst),
