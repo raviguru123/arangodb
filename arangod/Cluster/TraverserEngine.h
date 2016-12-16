@@ -78,6 +78,9 @@ class BaseTraverserEngine {
    virtual void smartSearchBFS(arangodb::velocypack::Slice,
                                arangodb::velocypack::Builder&) = 0;
 
+   virtual void smartSearchShortestPath(arangodb::velocypack::Slice,
+                                        arangodb::velocypack::Builder&) = 0;
+
    bool lockCollection(std::string const&);
 
    std::shared_ptr<TransactionContext> context() const;
@@ -110,6 +113,9 @@ class TraverserEngine : public BaseTraverserEngine {
 
     void smartSearchBFS(arangodb::velocypack::Slice,
                        arangodb::velocypack::Builder&) override;
+
+    void smartSearchShortestPath(arangodb::velocypack::Slice,
+                                 arangodb::velocypack::Builder&) override;
 };
 
 } // namespace traverser

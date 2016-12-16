@@ -359,3 +359,7 @@ void TraverserEngine::smartSearch(VPackSlice, VPackBuilder&) {
 void TraverserEngine::smartSearchBFS(VPackSlice, VPackBuilder&) {
   THROW_ARANGO_EXCEPTION(TRI_ERROR_ONLY_ENTERPRISE);
 }
+
+void TraverserEngine::smartSearchShortestPath(VPackSlice, VPackBuilder&) {
+  THROW_ARANGO_EXCEPTION(TRI_ERROR_ONLY_ENTERPRISE);
+}

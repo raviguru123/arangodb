@@ -226,6 +226,8 @@ void InternalRestTraverserHandler::queryEngine() {
     engine->smartSearch(body, result);
   } else if (option == "smartSearchBFS") {
     engine->smartSearchBFS(body, result);
+  } else if (option == "smartShortestPath") {
+    engine->smartSearchShortestPath(body, result);
   } else {
     // PATH Info wrong other error
     generateError(
@@ -233,6 +235,7 @@ void InternalRestTraverserHandler::queryEngine() {
         "");
     return;
   }
+
   generateResult(ResponseCode::OK, result.slice(), engine->context());
 }
 
