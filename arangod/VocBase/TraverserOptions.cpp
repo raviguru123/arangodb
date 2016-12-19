@@ -254,20 +254,29 @@ void BaseTraverserOptions::addLookupInfo(aql::Ast* ast,
                                          std::string const& collectionName,
                                          std::string const& attributeName,
                                          aql::AstNode* condition) {
+  injectLookupInfoInList(_baseLookupInfos, ast, collectionName, attributeName, condition);
+}
+
+void BaseTraverserOptions::injectLookupInfoInList(
+    std::vector<LookupInfo>& list, aql::Ast* ast,
+    std::string const& collectionName, std::string const& attributeName,
+    aql::AstNode* condition) {
   traverser::TraverserOptions::LookupInfo info;
   info.indexCondition = condition;
   info.expression = new aql::Expression(ast, condition->clone(ast));
   bool res = _trx->getBestIndexHandleForFilterCondition(
-        collectionName, info.indexCondition, _tmpVar, 1000,
-        info.idxHandles[0]);
+      collectionName, info.indexCondition, _tmpVar, 1000, info.idxHandles[0]);
   TRI_ASSERT(res);  // Right now we have an enforced edge index which will
                     // always fit.
   if (!res) {
-    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_INTERNAL, "expected edge index not found");
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_INTERNAL,
+                                   "expected edge index not found");
   }
 
-  // We now have to check if we need _from / _to inside the index lookup and which position
-  // it is used in. Such that the traverser can update the respective string value
+  // We now have to check if we need _from / _to inside the index lookup and
+  // which position
+  // it is used in. Such that the traverser can update the respective string
+  // value
   // in-place
   // TODO This place can be optimized.
   if (info.idxHandles[0].isEdgeIndex()) {
@@ -283,14 +292,15 @@ void BaseTraverserOptions::addLookupInfo(aql::Ast* ast,
     for (size_t i = 0; i < max; ++i) {
       auto const& f = fieldNames[i];
       if (f.size() == 1 && f[0] == attributeName) {
-        // we only work for _from and _to not _from.foo which would be null anyways...
+        // we only work for _from and _to not _from.foo which would be null
+        // anyways...
         info.conditionNeedUpdate = true;
         info.conditionMemberToUpdate = i;
         break;
       }
     }
   }
-  _baseLookupInfos.emplace_back(std::move(info));
+  list.emplace_back(std::move(info));
 }
 
 void BaseTraverserOptions::clearVariableValues() {
@@ -327,7 +337,7 @@ void BaseTraverserOptions::injectEngineInfo(VPackBuilder& result) const {
   TRI_ASSERT(result.isOpenObject());
   result.add(VPackValue("baseLookupInfos"));
   result.openArray();
-  for (auto const& it: _baseLookupInfos) {
+  for (auto const& it : _baseLookupInfos) {
     it.buildEngineInfo(result);
   }
   result.close();
@@ -787,7 +797,19 @@ ShortestPathOptions::ShortestPathOptions(arangodb::aql::Query* query,
     : BaseTraverserOptions(query, info, collections),
       _defaultWeight(1),
       _weightAttribute("") {
-  // FIXME
+  VPackSlice read = info.get("reverseLookupInfos");
+
+  if (!read.isArray()) {
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_BAD_PARAMETER,
+                                   "The options require a reverseLookupInfos");
+  }
+  size_t length = read.length();
+  TRI_ASSERT(read.length() == collections.length());
+  _reverseLookupInfos.reserve(length);
+  for (size_t j = 0; j < length; ++j) {
+    _reverseLookupInfos.emplace_back(query, read.at(j), collections.at(j));
+  }
+
 }
 
 void ShortestPathOptions::toVelocyPack(VPackBuilder& builder) const {
@@ -799,5 +821,18 @@ void ShortestPathOptions::toVelocyPack(VPackBuilder& builder) const {
 void ShortestPathOptions::buildEngineInfo(VPackBuilder& result) const {
   VPackObjectBuilder guard(&result);
   BaseTraverserOptions::injectEngineInfo(result);
+  result.add(VPackValue("reverseLookupInfos"));
+  result.openArray();
+  for (auto const& it : _reverseLookupInfos) {
+    it.buildEngineInfo(result);
+  }
+  result.close();
   result.add("type", VPackValue("shortest"));
+}
+
+void ShortestPathOptions::addReverseLookupInfo(
+    aql::Ast* ast, std::string const& collectionName,
+    std::string const& attributeName, aql::AstNode* condition) {
+  injectLookupInfoInList(_reverseLookupInfos, ast, collectionName,
+                         attributeName, condition);
 }

@@ -129,12 +129,29 @@ void InternalRestTraverserHandler::queryEngine() {
     return;
   
   }
-  traverser::BaseTraverserEngine* engine = _registry->get(engineId);
-  if (engine == nullptr) {
-    generateError(
-        ResponseCode::BAD, TRI_ERROR_HTTP_BAD_PARAMETER,
-        "invalid TraverserEngineId");
-    return;
+  double start = TRI_microtime();
+  traverser::BaseTraverserEngine* engine = nullptr;
+  while (true) {
+    try {
+      engine = _registry->get(engineId);
+      if (engine == nullptr) {
+        generateError(
+            ResponseCode::BAD, TRI_ERROR_HTTP_BAD_PARAMETER,
+            "invalid TraverserEngineId");
+        return;
+      }
+      break;
+    } catch (arangodb::basics::Exception const& ex) { /* check type */
+      if (ex.code() == TRI_ERROR_DEADLOCK) {
+        // Define timeout properly.
+        if (TRI_microtime() - start > 600.0) {
+          THROW_ARANGO_EXCEPTION(TRI_ERROR_CLUSTER_TIMEOUT);
+        }
+        usleep(100000);
+      } else {
+        throw ex;
+      }
+    }
   }
 
   auto& registry = _registry; // For the guard
@@ -235,7 +252,6 @@ void InternalRestTraverserHandler::queryEngine() {
         "");
     return;
   }
-
   generateResult(ResponseCode::OK, result.slice(), engine->context());
 }
 

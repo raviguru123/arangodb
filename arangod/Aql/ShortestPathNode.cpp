@@ -334,20 +334,24 @@ void ShortestPathNode::prepareOptions() {
   TRI_ASSERT(!_optionsBuild);
   _options->setVariable(_tmpObjVariable);
 
+  auto opts = dynamic_cast<arangodb::traverser::ShortestPathOptions*>(_options.get());
+
   Ast* ast = _plan->getAst();
   // FIXME: _options->_baseLookupInfos.reserve(numEdgeColls);
   // Compute Edge Indexes. First default indexes:
   for (size_t i = 0; i < numEdgeColls; ++i) {
     switch (_directions[i]) {
       case TRI_EDGE_IN:
-        _options->addLookupInfo(
-            ast, _edgeColls[i]->getName(), StaticStrings::ToString,
-            _toCondition);
+        opts->addLookupInfo(ast, _edgeColls[i]->getName(),
+                            StaticStrings::ToString, _toCondition);
+        opts->addReverseLookupInfo(ast, _edgeColls[i]->getName(),
+                                   StaticStrings::FromString, _fromCondition);
         break;
       case TRI_EDGE_OUT:
-        _options->addLookupInfo(
-            ast, _edgeColls[i]->getName(), StaticStrings::FromString,
-            _fromCondition);
+        opts->addLookupInfo(ast, _edgeColls[i]->getName(),
+                            StaticStrings::FromString, _fromCondition);
+        opts->addReverseLookupInfo(ast, _edgeColls[i]->getName(),
+                                   StaticStrings::ToString, _toCondition);
         break;
       case TRI_EDGE_ANY:
         TRI_ASSERT(false);
@@ -355,6 +359,5 @@ void ShortestPathNode::prepareOptions() {
     }
   }
 
-  // TODO add reverse direction.
   _optionsBuild = true;
 }
