@@ -43,16 +43,17 @@ static inline uint64_t HashElement(void*,
   //  return HashKey(nullptr, &revisionId);
 }
 
-static inline TRI_voc_rid_t ExtractKey(void*,
-                                       MMFilesDocumentPosition const& element) {
-  return element.revisionId();
+static inline RevisionIdWrapper ExtractKey(
+    void*, MMFilesDocumentPosition const& element) {
+  return RevisionIdWrapper(element.revisionId());
   //  TRI_voc_rid_t revisionId = element.revisionId();
   //  return HashKey(nullptr, &revisionId);
 }
 
-static bool IsEqualKeyElement(void*, TRI_voc_rid_t const* key, uint64_t hash,
+static bool IsEqualKeyElement(void*, RevisionIdWrapper const* key,
+                              uint64_t hash,
                               MMFilesDocumentPosition const& element) {
-  return *key == element.revisionId();
+  return key->id == element.revisionId();
 }
 
 static bool IsEqualElementElement(void*, MMFilesDocumentPosition const& left,
@@ -60,11 +61,11 @@ static bool IsEqualElementElement(void*, MMFilesDocumentPosition const& left,
   return left.revisionId() == right.revisionId();
 }
 
-static void AppendKey(void*, std::string* buf, TRI_voc_rid_t const* key) {
-  buf->append(reinterpret_cast<char const*>(key), sizeof(TRI_voc_rid_t));
+static void AppendKey(void*, std::string* buf, RevisionIdWrapper const* key) {
+  buf->append(std::to_string(key->id));
 }
-static std::string KeyToString(void*, TRI_voc_rid_t const& k) {
-  return std::to_string(k);
+static std::string KeyToString(void*, RevisionIdWrapper const& k) {
+  return std::to_string(k.id);
 }
 
 static std::string ElementToString(void*, MMFilesDocumentPosition const& e) {
@@ -87,11 +88,12 @@ MMFilesRevisionsCache::MMFilesRevisionsCache(LogicalCollection* c)
 MMFilesRevisionsCache::~MMFilesRevisionsCache() {}
 
 MMFilesDocumentPosition MMFilesRevisionsCache::lookup(
-    TRI_voc_rid_t revisionId) const {
+    TRI_voc_rid_t revisionId) {
   TRI_ASSERT(revisionId != 0);
   READ_LOCKER(locker, _lock);
 
-  return _positions.findByKey(nullptr, &revisionId);
+  RevisionIdWrapper wrapper(revisionId);
+  return _positions.findByKey(nullptr, &wrapper);
 }
 
 void MMFilesRevisionsCache::sizeHint(int64_t hint) {
@@ -117,7 +119,8 @@ void MMFilesRevisionsCache::insert(TRI_voc_rid_t revisionId,
       nullptr, MMFilesDocumentPosition(revisionId, dataptr, fid, isInWal));
 
   if (res != TRI_ERROR_NO_ERROR) {
-    _positions.removeByKey(nullptr, &revisionId);
+    RevisionIdWrapper wrapper(revisionId);
+    _positions.removeByKey(nullptr, &wrapper);
     _positions.insert(
         nullptr, MMFilesDocumentPosition(revisionId, dataptr, fid, isInWal));
   }
@@ -131,7 +134,8 @@ void MMFilesRevisionsCache::update(TRI_voc_rid_t revisionId,
 
   WRITE_LOCKER(locker, _lock);
 
-  MMFilesDocumentPosition old = _positions.removeByKey(nullptr, &revisionId);
+  RevisionIdWrapper wrapper(revisionId);
+  MMFilesDocumentPosition old = _positions.removeByKey(nullptr, &wrapper);
   if (!old) {
     return;
   }
@@ -147,7 +151,8 @@ bool MMFilesRevisionsCache::updateConditional(
     TRI_df_marker_t const* newPosition, TRI_voc_fid_t newFid, bool isInWal) {
   WRITE_LOCKER(locker, _lock);
 
-  MMFilesDocumentPosition old = _positions.findByKey(nullptr, &revisionId);
+  RevisionIdWrapper wrapper(revisionId);
+  MMFilesDocumentPosition old = _positions.findByKey(nullptr, &wrapper);
   if (!old) {
     return false;
   }
@@ -164,7 +169,7 @@ bool MMFilesRevisionsCache::updateConditional(
     return false;
   }
 
-  _positions.removeByKey(nullptr, &revisionId);
+  _positions.removeByKey(nullptr, &wrapper);
 
   old.dataptr(
       reinterpret_cast<char const*>(newPosition) +
@@ -180,7 +185,8 @@ void MMFilesRevisionsCache::remove(TRI_voc_rid_t revisionId) {
   TRI_ASSERT(revisionId != 0);
 
   WRITE_LOCKER(locker, _lock);
-  _positions.removeByKey(nullptr, &revisionId);
+  RevisionIdWrapper wrapper(revisionId);
+  _positions.removeByKey(nullptr, &wrapper);
 }
 
 MMFilesDocumentPosition MMFilesRevisionsCache::fetchAndRemove(
@@ -188,5 +194,6 @@ MMFilesDocumentPosition MMFilesRevisionsCache::fetchAndRemove(
   TRI_ASSERT(revisionId != 0);
 
   WRITE_LOCKER(locker, _lock);
-  return _positions.removeByKey(nullptr, &revisionId);
+  RevisionIdWrapper wrapper(revisionId);
+  return _positions.removeByKey(nullptr, &wrapper);
 }

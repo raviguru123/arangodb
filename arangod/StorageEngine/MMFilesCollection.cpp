@@ -1172,7 +1172,7 @@ int MMFilesCollection::iterateMarkersOnLoad(arangodb::Transaction* trx) {
 }
 
 MMFilesDocumentPosition MMFilesCollection::lookupRevision(
-    TRI_voc_rid_t revisionId) const {
+    TRI_voc_rid_t revisionId) {
   TRI_ASSERT(revisionId != 0);
   MMFilesDocumentPosition const old = _revisionsCache.lookup(revisionId);
   if (old) {
@@ -1183,7 +1183,7 @@ MMFilesDocumentPosition MMFilesCollection::lookupRevision(
 }
 
 uint8_t const* MMFilesCollection::lookupRevisionVPack(
-    TRI_voc_rid_t revisionId) const {
+    TRI_voc_rid_t revisionId) {
   TRI_ASSERT(revisionId != 0);
 
   MMFilesDocumentPosition const old = _revisionsCache.lookup(revisionId);
@@ -1197,7 +1197,7 @@ uint8_t const* MMFilesCollection::lookupRevisionVPack(
 }
 
 uint8_t const* MMFilesCollection::lookupRevisionVPackConditional(
-    TRI_voc_rid_t revisionId, TRI_voc_tick_t maxTick, bool excludeWal) const {
+    TRI_voc_rid_t revisionId, TRI_voc_tick_t maxTick, bool excludeWal) {
   TRI_ASSERT(revisionId != 0);
 
   MMFilesDocumentPosition const old = _revisionsCache.lookup(revisionId);

@@ -59,6 +59,7 @@ struct Key {
   Key(uint64_t i) : k(i) {}
   Key(Key const& other) : k(other.k) {}
   bool empty() const { return k == 0; }
+  bool operator==(Key const& other) const { return k == other.k; }
 };
 
 struct Value {

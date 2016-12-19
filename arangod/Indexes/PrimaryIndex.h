@@ -43,7 +43,10 @@ class Transaction;
 
 // typedef arangodb::basics::AssocUnique<uint8_t, SimpleIndexElement>
 // PrimaryIndexImpl;
-typedef arangodb::basics::RocksDBMap<std::string, SimpleIndexElement>
+typedef arangodb::basics::RocksDBMap<std::string, SimpleIndexElement,
+                                     HashStringWithSeed<0xdeadbeefdeadbeefULL>,
+                                     HashStringWithSeed<0xabcdefabcdef1234ULL>>
+
     PrimaryIndexImpl;
 
 class PrimaryIndexIterator final : public IndexIterator {

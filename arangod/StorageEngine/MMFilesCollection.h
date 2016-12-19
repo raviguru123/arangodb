@@ -42,8 +42,8 @@ class LogicalCollection;
 class PrimaryIndex;
 
 class MMFilesCollection final : public PhysicalCollection {
- friend class MMFilesCompactorThread;
- friend class MMFilesEngine;
+  friend class MMFilesCompactorThread;
+  friend class MMFilesEngine;
 
  public:
   /// @brief state during opening of a collection
@@ -62,7 +62,7 @@ class MMFilesCollection final : public PhysicalCollection {
     int64_t _initialCount;
     bool const _trackKeys;
 
-    OpenIteratorState(LogicalCollection* collection, arangodb::Transaction* trx) 
+    OpenIteratorState(LogicalCollection* collection, arangodb::Transaction* trx)
         : _collection(collection),
           _primaryIndex(collection->primaryIndex()),
           _tid(0),
@@ -105,17 +105,20 @@ class MMFilesCollection final : public PhysicalCollection {
 
   int64_t initialCount() const override;
   void updateCount(int64_t) override;
-  
+
   /// @brief return engine-specific figures
   void figures(std::shared_ptr<arangodb::velocypack::Builder>&) override;
-  
+
   // datafile management
-  bool applyForTickRange(TRI_voc_tick_t dataMin, TRI_voc_tick_t dataMax,
-                         std::function<bool(TRI_voc_tick_t foundTick, TRI_df_marker_t const* marker)> const& callback) override;
+  bool applyForTickRange(
+      TRI_voc_tick_t dataMin, TRI_voc_tick_t dataMax,
+      std::function<bool(TRI_voc_tick_t foundTick,
+                         TRI_df_marker_t const* marker)> const& callback)
+      override;
 
   /// @brief closes an open collection
   int close() override;
-  
+
   /// @brief rotate the active journal - will do nothing if there is no journal
   int rotateActiveJournal() override;
 
@@ -124,28 +127,32 @@ class MMFilesCollection final : public PhysicalCollection {
   int syncActiveJournal();
 
   int reserveJournalSpace(TRI_voc_tick_t tick, TRI_voc_size_t size,
-                          char*& resultPosition, TRI_datafile_t*& resultDatafile);
+                          char*& resultPosition,
+                          TRI_datafile_t*& resultDatafile);
 
   /// @brief create compactor file
-  TRI_datafile_t* createCompactor(TRI_voc_fid_t fid, TRI_voc_size_t maximalSize);
-  
+  TRI_datafile_t* createCompactor(TRI_voc_fid_t fid,
+                                  TRI_voc_size_t maximalSize);
+
   /// @brief close an existing compactor
   int closeCompactor(TRI_datafile_t* datafile);
 
   /// @brief replace a datafile with a compactor
-  int replaceDatafileWithCompactor(TRI_datafile_t* datafile, TRI_datafile_t* compactor);
+  int replaceDatafileWithCompactor(TRI_datafile_t* datafile,
+                                   TRI_datafile_t* compactor);
 
   bool removeCompactor(TRI_datafile_t*);
   bool removeDatafile(TRI_datafile_t*);
-  
+
   /// @brief seal a datafile
   int sealDatafile(TRI_datafile_t* datafile, bool isCompactor);
 
   /// @brief increase dead stats for a datafile, if it exists
-  void updateStats(TRI_voc_fid_t fid, DatafileStatisticsContainer const& values) override {
+  void updateStats(TRI_voc_fid_t fid,
+                   DatafileStatisticsContainer const& values) override {
     _datafileStatistics.update(fid, values);
   }
-   
+
   /// @brief report extra memory used by indexes etc.
   size_t memory() const override;
 
@@ -155,9 +162,9 @@ class MMFilesCollection final : public PhysicalCollection {
   void lockForCompaction() override;
   bool tryLockForCompaction() override;
   void finishCompaction() override;
-  
+
   Ditches* ditches() const override { return &_ditches; }
-  
+
   /// @brief iterate all markers of a collection on load
   int iterateMarkersOnLoad(arangodb::Transaction* trx) override;
 
@@ -168,40 +175,52 @@ class MMFilesCollection final : public PhysicalCollection {
   static int OpenIteratorHandleDeletionMarker(TRI_df_marker_t const* marker,
                                               TRI_datafile_t* datafile,
                                               OpenIteratorState* state);
-  static bool OpenIterator(TRI_df_marker_t const* marker, OpenIteratorState* data, TRI_datafile_t* datafile);
+  static bool OpenIterator(TRI_df_marker_t const* marker,
+                           OpenIteratorState* data, TRI_datafile_t* datafile);
 
   /// @brief create statistics for a datafile, using the stats provided
-  void createStats(TRI_voc_fid_t fid, DatafileStatisticsContainer const& values) {
+  void createStats(TRI_voc_fid_t fid,
+                   DatafileStatisticsContainer const& values) {
     _datafileStatistics.create(fid, values);
   }
-  
+
   /// @brief iterates over a collection
-  bool iterateDatafiles(std::function<bool(TRI_df_marker_t const*, TRI_datafile_t*)> const& cb);
-  
+  bool iterateDatafiles(
+      std::function<bool(TRI_df_marker_t const*, TRI_datafile_t*)> const& cb);
+
   /// @brief creates a datafile
-  TRI_datafile_t* createDatafile(TRI_voc_fid_t fid,
-                                 TRI_voc_size_t journalSize, 
+  TRI_datafile_t* createDatafile(TRI_voc_fid_t fid, TRI_voc_size_t journalSize,
                                  bool isCompactor);
 
   /// @brief iterate over a vector of datafiles and pick those with a specific
   /// data range
-  std::vector<DatafileDescription> datafilesInRange(TRI_voc_tick_t dataMin, TRI_voc_tick_t dataMax);
-  
+  std::vector<DatafileDescription> datafilesInRange(TRI_voc_tick_t dataMin,
+                                                    TRI_voc_tick_t dataMax);
+
   /// @brief closes the datafiles passed in the vector
   bool closeDatafiles(std::vector<TRI_datafile_t*> const& files);
 
-  bool iterateDatafilesVector(std::vector<TRI_datafile_t*> const& files,
-                              std::function<bool(TRI_df_marker_t const*, TRI_datafile_t*)> const& cb);
+  bool iterateDatafilesVector(
+      std::vector<TRI_datafile_t*> const& files,
+      std::function<bool(TRI_df_marker_t const*, TRI_datafile_t*)> const& cb);
 
-  MMFilesDocumentPosition lookupRevision(TRI_voc_rid_t revisionId) const;
+  MMFilesDocumentPosition lookupRevision(TRI_voc_rid_t revisionId);
 
-  uint8_t const* lookupRevisionVPack(TRI_voc_rid_t revisionId) const override;
-  uint8_t const* lookupRevisionVPackConditional(TRI_voc_rid_t revisionId, TRI_voc_tick_t maxTick, bool excludeWal) const override;
-  void insertRevision(TRI_voc_rid_t revisionId, uint8_t const* dataptr, TRI_voc_fid_t fid, bool isInWal, bool shouldLock) override;
-  void updateRevision(TRI_voc_rid_t revisionId, uint8_t const* dataptr, TRI_voc_fid_t fid, bool isInWal) override;
-  bool updateRevisionConditional(TRI_voc_rid_t revisionId, TRI_df_marker_t const* oldPosition, TRI_df_marker_t const* newPosition, TRI_voc_fid_t newFid, bool isInWal) override;
+  uint8_t const* lookupRevisionVPack(TRI_voc_rid_t revisionId) override;
+  uint8_t const* lookupRevisionVPackConditional(TRI_voc_rid_t revisionId,
+                                                TRI_voc_tick_t maxTick,
+                                                bool excludeWal) override;
+  void insertRevision(TRI_voc_rid_t revisionId, uint8_t const* dataptr,
+                      TRI_voc_fid_t fid, bool isInWal,
+                      bool shouldLock) override;
+  void updateRevision(TRI_voc_rid_t revisionId, uint8_t const* dataptr,
+                      TRI_voc_fid_t fid, bool isInWal) override;
+  bool updateRevisionConditional(TRI_voc_rid_t revisionId,
+                                 TRI_df_marker_t const* oldPosition,
+                                 TRI_df_marker_t const* newPosition,
+                                 TRI_voc_fid_t newFid, bool isInWal) override;
   void removeRevision(TRI_voc_rid_t revisionId, bool updateStats) override;
-  
+
  private:
   mutable arangodb::Ditches _ditches;
 
@@ -209,18 +228,17 @@ class MMFilesCollection final : public PhysicalCollection {
   std::vector<TRI_datafile_t*> _datafiles;   // all datafiles
   std::vector<TRI_datafile_t*> _journals;    // all journals
   std::vector<TRI_datafile_t*> _compactors;  // all compactor files
-  
+
   arangodb::basics::ReadWriteLock _compactionLock;
 
   int64_t _initialCount;
-  
+
   MMFilesDatafileStatistics _datafileStatistics;
 
   TRI_voc_rid_t _lastRevision;
-  
+
   MMFilesRevisionsCache _revisionsCache;
 };
-
 }
 
 #endif

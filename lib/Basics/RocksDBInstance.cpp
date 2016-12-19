@@ -33,5 +33,40 @@ arangodb::Mutex RocksDBInstance::_rocksDbMutex;
 rocksdb::DB* RocksDBInstance::_db = nullptr;
 std::atomic<uint64_t> RocksDBInstance::_instanceCount(0);
 std::string RocksDBInstance::_dbFolder("/tmp/test_rocksdbinstance");
+
+RocksDBInstance::RocksDBInstance() {
+  MUTEX_LOCKER(locker, _rocksDbMutex);
+  if (_db == nullptr) {
+    rocksdb::BlockBasedTableOptions table_options;
+    table_options.block_cache =
+        rocksdb::NewLRUCache(100 * 1048576);  // 100MB uncompressed cache
+
+    rocksdb::Options options;
+    options.table_factory.reset(
+        rocksdb::NewBlockBasedTableFactory(table_options));
+    options.create_if_missing = true;
+    options.prefix_extractor.reset(
+        rocksdb::NewFixedPrefixTransform(_prefixLength));
+
+    auto status = rocksdb::DB::Open(options, _dbFolder, &_db);
+    TRI_ASSERT(status.ok());
+    if (!status.ok()) {
+      std::cerr << status.ToString() << std::endl;
+    }
+    assert(status.ok());
+  }
+  _instanceCount++;
+}
+
+RocksDBInstance::~RocksDBInstance() {
+  MUTEX_LOCKER(locker, _rocksDbMutex);
+  _instanceCount--;
+  if (_instanceCount.load() == 0) {
+    delete _db;
+    _db = nullptr;
+  }
+}
+
+rocksdb::DB* RocksDBInstance::db() { return _db; }
 }
 }

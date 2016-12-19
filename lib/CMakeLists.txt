@@ -128,6 +128,7 @@ add_library(${LIB_ARANGO} STATIC
   Basics/Barrier.cpp
   Basics/ConditionLocker.cpp
   Basics/ConditionVariable.cpp
+  Basics/CuckooHelpers.cpp
   Basics/DataProtector.cpp
   Basics/Exceptions.cpp
   Basics/FileUtils.cpp

@@ -38,6 +38,7 @@
 #include <iostream>
 #include <thread>
 
+#include "Basics/InternalCuckooMap.h"
 #include "Basics/MutexLocker.h"
 #include "Basics/RocksDBInstance.h"
 #include "Basics/gcd.h"
@@ -81,10 +82,14 @@ struct RocksDBPosition {
 /// @brief RocksDB-backed map implementation
 ////////////////////////////////////////////////////////////////////////////////
 
-template <class Key, class Element>
+template <class Key, class Element,
+          class HashKey1 = HashWithSeed<Key, 0xdeadbeefdeadbeefULL>,
+          class HashKey2 = HashWithSeed<Key, 0xabcdefabcdef1234ULL>,
+          class CompKey = std::equal_to<Key>>
 class RocksDBMap {
  private:
   typedef void UserData;
+  typedef InternalCuckooMap<Key, Element, HashKey1, HashKey2> Cache;
 
  public:
   typedef std::function<Key const(UserData*, Element const&)>
@@ -118,6 +123,10 @@ class RocksDBMap {
   arangodb::basics::RocksDBInstance _dbInstance;
   rocksdb::DB* _db;
   uint64_t _size;
+  Cache* _cache;
+  uint64_t _minCacheSize;
+  uint64_t _maxCacheSize;
+  uint64_t _cacheSize;
 
  public:
   RocksDBMap(ExtractKeyFuncType extractKey,
@@ -144,12 +153,19 @@ class RocksDBMap {
         _keyToString(keyToString),
         _elementToString(elementToString),
         _dbInstance(),
-        _size(0) {
+        _size(0),
+        _minCacheSize(1024),
+        _maxCacheSize(32 * 1024 * 1024),
+        _cacheSize(1024) {
     _db = _dbInstance.db();
+    _cache = new Cache(false, _cacheSize);
   }
 
   ~RocksDBMap() {
     truncate([](Element&) -> bool { return true; });
+    if (_cache != nullptr) {
+      delete _cache;
+    }
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -188,15 +204,66 @@ class RocksDBMap {
     return Element(*reinterpret_cast<Element const*>(it->value().data()));
   }
 
+  void growCache() {
+    if (_cacheSize < _maxCacheSize) {
+      uint64_t newCacheSize = _cacheSize;
+      for (; newCacheSize < _size; newCacheSize *= 4) {
+      };
+      if (newCacheSize > _maxCacheSize) {
+        newCacheSize = _maxCacheSize;
+      }
+      Cache* newCache = nullptr;
+
+      try {
+        newCache = new Cache(false, newCacheSize);
+      } catch (...) {
+        newCache = nullptr;
+      }
+
+      if (newCache != nullptr) {
+        delete _cache;
+        _cache = newCache;
+        _cacheSize = newCacheSize;
+      }
+    }
+  }
+
+  void shrinkCache() {
+    if (_cacheSize > _minCacheSize) {
+      uint64_t newCacheSize = _cacheSize;
+      for (; newCacheSize > (_size << 1); newCacheSize >>= 1) {
+      };
+      if (newCacheSize < _minCacheSize) {
+        newCacheSize = _minCacheSize;
+      }
+      Cache* newCache = nullptr;
+
+      try {
+        newCache = new Cache(false, newCacheSize);
+      } catch (...) {
+        newCache = nullptr;
+      }
+
+      if (newCache != nullptr) {
+        delete _cache;
+        _cache = newCache;
+        _cacheSize = newCacheSize;
+      }
+    }
+  }
+
  public:
   void truncate(CallbackElementFuncType callback) {
     auto it = _db->NewIterator(rocksdb::ReadOptions());
     for (it->Seek(_mapPrefix); it->Valid() && it->key().starts_with(_mapPrefix);
          it->Next()) {
       Element e = unwrapIterator(it);
+      Key kCopy(*reinterpret_cast<Key const*>(it->key().data() +
+                                              _mapPrefix.length()));
       callback(e);
       auto status = _db->Delete(rocksdb::WriteOptions(), it->key());
       TRI_ASSERT(status.ok());
+      _cache->remove(kCopy);
       _size--;
     }
   }
@@ -239,7 +306,7 @@ class RocksDBMap {
   /// @brief finds an element equal to the given element.
   //////////////////////////////////////////////////////////////////////////////
 
-  Element find(UserData* userData, Element const& element) const {
+  Element find(UserData* userData, Element const& element) {
     Key k = _extractKey(userData, element);
     Element found = findByKey(userData, &k);
     return _isEqualElementElement(userData, element, found) ? found : Element();
@@ -250,13 +317,31 @@ class RocksDBMap {
   /// if not found
   //////////////////////////////////////////////////////////////////////////////
 
-  Element findByKey(UserData* userData, Key const* key) const {
+  Element findByKey(UserData* userData, Key const* key) {
+    Key* cK;
+    Element* cE;
+    bool foundInCache = _cache->lookup(*key, cK, cE);
+    if (foundInCache) {
+      return *cE;
+    }
+
     std::string prefixedKey = prefixKey(userData, key);
     rocksdb::Slice kSlice(prefixedKey);
     std::string eSlice(sizeof(Element), '\0');
     auto status = _db->Get(rocksdb::ReadOptions(), kSlice, &eSlice);
     if (status.ok()) {
-      return unwrapElement(&eSlice);
+      Element e = unwrapElement(&eSlice);
+      // try to cache it
+      Key kCopy = *key;
+      Element eCopy = e;
+      int expunged = 1;
+      for (int i = 0; i < 3 && expunged == 1; i++) {
+        expunged = _cache->insert(kCopy, &eCopy, nullptr, nullptr);
+        if (expunged == -1) {  // already in table somehow...?
+          break;
+        }
+      }
+      return e;
     } else {
       return Element();
     }
@@ -266,7 +351,7 @@ class RocksDBMap {
   /// @brief adds an element to the array
   //////////////////////////////////////////////////////////////////////////////
 
-  int insert(UserData* userData, Element const& element) {
+  int insert(UserData* userData, Element const& element, bool cache = true) {
     Key key = _extractKey(userData, element);
 
     Element found = findByKey(userData, &key);
@@ -279,7 +364,22 @@ class RocksDBMap {
     auto eSlice = wrapElement(&element);
     auto status = _db->Put(rocksdb::WriteOptions(), kSlice, eSlice);
     if (status.ok()) {
+      if (cache) {
+        // try to cache it
+        Key kCopy = key;
+        Element eCopy = element;
+        int expunged = 1;
+        for (int i = 0; i < 3 && expunged == 1; i++) {
+          expunged = _cache->insert(kCopy, &eCopy, nullptr, nullptr);
+          if (expunged == -1) {  // already in table somehow...?
+            break;
+          }
+        }
+      }
       _size++;
+      if (cache && (_size > _cacheSize)) {
+        growCache();
+      }
       return TRI_ERROR_NO_ERROR;
     } else {
       return TRI_ERROR_ARANGO_UNIQUE_CONSTRAINT_VIOLATED;  // wrong error
@@ -297,8 +397,19 @@ class RocksDBMap {
     auto eSlice = wrapElement(&element);
     auto status = _db->Delete(rocksdb::WriteOptions(), kSlice);
     TRI_ASSERT(status.ok());
+    _cache->remove(key);
     status = _db->Put(rocksdb::WriteOptions(), kSlice, eSlice);
     if (status.ok()) {
+      // try to cache it
+      Key kCopy = key;
+      Element eCopy = element;
+      int expunged = 1;
+      for (int i = 0; i < 3 && expunged == 1; i++) {
+        expunged = _cache->insert(kCopy, &eCopy, nullptr, nullptr);
+        if (expunged == -1) {  // already in table somehow...?
+          break;
+        }
+      }
       return TRI_ERROR_NO_ERROR;
     } else {
       return TRI_ERROR_ARANGO_UNIQUE_CONSTRAINT_VIOLATED;  // wrong error
@@ -333,7 +444,7 @@ class RocksDBMap {
       auto partitioner = [&](size_t lower, size_t upper,
                              void* userData) -> void {
         for (auto i = lower; i < upper; i++) {
-          auto status = insert(userData, elements[i]);
+          auto status = insert(userData, elements[i], false);
           if (status != TRI_ERROR_NO_ERROR) {
             res = status;
             break;
@@ -371,6 +482,8 @@ class RocksDBMap {
       }
     }
 
+    growCache();
+
     if (res.load() != TRI_ERROR_NO_ERROR) {
       return res.load();
     }
@@ -403,7 +516,11 @@ class RocksDBMap {
     if (status.ok()) {
       status = _db->Delete(rocksdb::WriteOptions(), kSlice);
       if (status.ok()) {
+        _cache->remove(*key);
         _size--;
+        if (_cacheSize > 4 * _size) {
+          shrinkCache();
+        }
       } else {
         eSlice.replace(0, eSlice.length(), 1, '\0');
       }

@@ -36,9 +36,34 @@ struct TRI_df_marker_t;
 
 namespace arangodb {
 
+struct RevisionIdWrapper {
+  TRI_voc_rid_t id;
+  RevisionIdWrapper() : id(0) {}
+  RevisionIdWrapper(TRI_voc_rid_t r) : id(r) {}
+  RevisionIdWrapper(RevisionIdWrapper const& other) : id(other.id) {}
+  bool empty() { return id == 0; }
+  bool operator==(RevisionIdWrapper const& other) const {
+    return id == other.id;
+  }
+};
+}
+
+namespace std {
+template <>
+struct equal_to<arangodb::RevisionIdWrapper> {
+  bool operator()(arangodb::RevisionIdWrapper const& a,
+                  arangodb::RevisionIdWrapper const& b) const {
+    return a.id == b.id;
+  }
+};
+}
+
+namespace arangodb {
+
 class MMFilesRevisionsCache {
  public:
-  typedef arangodb::basics::RocksDBMap<TRI_voc_rid_t, MMFilesDocumentPosition>
+  typedef arangodb::basics::RocksDBMap<RevisionIdWrapper,
+                                       MMFilesDocumentPosition>
       Cache;
   MMFilesRevisionsCache(LogicalCollection*);
   ~MMFilesRevisionsCache();
@@ -46,7 +71,7 @@ class MMFilesRevisionsCache {
  public:
   void sizeHint(int64_t hint);
   void clear();
-  MMFilesDocumentPosition lookup(TRI_voc_rid_t revisionId) const;
+  MMFilesDocumentPosition lookup(TRI_voc_rid_t revisionId);
   void insert(TRI_voc_rid_t revisionId, uint8_t const* dataptr,
               TRI_voc_fid_t fid, bool isInWal, bool shouldLock);
   void update(TRI_voc_rid_t revisionId, uint8_t const* dataptr,
