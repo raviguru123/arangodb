@@ -66,6 +66,7 @@ HttpCommTask::HttpCommTask(EventLoop loop, GeneralServer* server,
   _protocol = "http";
 
   connectionStatisticsAgentSetHttp();
+  
   auto agent = std::make_unique<RequestStatisticsAgent>(true);
   agent->acquire();
   MUTEX_LOCKER(lock, _agentsMutex);
@@ -527,7 +528,7 @@ bool HttpCommTask::processRead(double startTime) {
     LOG(DEBUG) << "no keep-alive, connection close requested by client";
     _closeRequested = true;
 
-  } else if (!_useKeepAliveTimeout) {
+  } else if (!_useKeepAliveTimer) {
     // if keepAliveTimeout was set to 0.0, we'll close even keep-alive
     // connections immediately
     LOG(DEBUG) << "keep-alive disabled by admin";

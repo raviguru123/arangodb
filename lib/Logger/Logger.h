@@ -129,14 +129,16 @@ class Logger {
  public:
   static LogTopic AGENCY;
   static LogTopic AGENCYCOMM;
-  static LogTopic COLLECTOR;
-  static LogTopic COMPACTOR;
-  static LogTopic COMMUNICATION;
-  static LogTopic CONFIG;
   static LogTopic CLUSTER;
+  static LogTopic COLLECTOR;
+  static LogTopic COMMUNICATION;
+  static LogTopic COMPACTOR;
+  static LogTopic CONFIG;
   static LogTopic DATAFILES;
+  static LogTopic DEVEL;
   static LogTopic GRAPHS;
   static LogTopic HEARTBEAT;
+  static LogTopic MEMORY;
   static LogTopic MMAP;
   static LogTopic PERFORMANCE;
   static LogTopic QUERIES;

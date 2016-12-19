@@ -46,6 +46,7 @@ function MovingShardsSuite () {
   var cn = "UnitTestMovingShards";
   var count = 0;
   var c = [];
+  var dbservers = global.ArangoClusterInfo.getDBServers();
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief find out servers for a collection
@@ -277,19 +278,18 @@ function MovingShardsSuite () {
 ////////////////////////////////////////////////////////////////////////////////
 
   function findServerNotOnList(list) {
-    var count = 1;
-    var str = "" + count;
+    var count = 0;
+    /*var str = "" + count;
     var pad = "0000";
     var ans = pad.substring(0, pad.length - str.length) + str;
 
-    var name = "DBServer" + ans;
-    while (list.indexOf(name) >= 0) {
+    var name = "DBServer" + ans;*/
+    
+    while (list.indexOf(dbservers[count]) >= 0) {
       count += 1;
-      str = "" + count;
-      ans = pad.substring(0, pad.length - str.length) + str;
-      name = "DBServer" + ans;
+
     }
-    return name;
+    return dbservers[count];
   }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -305,9 +305,14 @@ function MovingShardsSuite () {
           Object.keys(state.Pending).length === 0) {
         return true;
       }
-      console.info("Waiting for supervision jobs to finish:",
-                   "ToDo jobs:", Object.keys(state.ToDo).length,
-                   "Pending jobs:", Object.keys(state.Pending).length);
+      if (state.error) {
+        console.warn("Waiting for supervision jobs to finish:",
+                     "Currently no agency communication possible.");
+      } else {
+        console.info("Waiting for supervision jobs to finish:",
+                     "ToDo jobs:", Object.keys(state.ToDo).length,
+                     "Pending jobs:", Object.keys(state.Pending).length);
+      }
       wait(1.0);
     }
     return false;
@@ -344,6 +349,7 @@ function MovingShardsSuite () {
 ////////////////////////////////////////////////////////////////////////////////
 
     testSetup : function () {
+      dbservers = global.ArangoClusterInfo.getDBServers();
       assertTrue(waitForSynchronousReplication("_system"));
     },
 
