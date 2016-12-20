@@ -27,6 +27,7 @@
 
 #include "Basics/Common.h"
 #include "Aql/Collections.h"
+#include "VocBase/TraverserOptions.h"
 
 struct TRI_vocbase_t;
 
@@ -72,15 +73,6 @@ class BaseTraverserEngine {
    void getVertexData(arangodb::velocypack::Slice, size_t,
                       arangodb::velocypack::Builder&);
 
-   virtual void smartSearch(arangodb::velocypack::Slice,
-                            arangodb::velocypack::Builder&) = 0;
-
-   virtual void smartSearchBFS(arangodb::velocypack::Slice,
-                               arangodb::velocypack::Builder&) = 0;
-
-   virtual void smartSearchShortestPath(arangodb::velocypack::Slice,
-                                        arangodb::velocypack::Builder&) = 0;
-
    bool lockCollection(std::string const&);
 
    std::shared_ptr<TransactionContext> context() const;
@@ -107,15 +99,6 @@ class TraverserEngine : public BaseTraverserEngine {
     TraverserEngine(TRI_vocbase_t*, arangodb::velocypack::Slice);
   public:
     ~TraverserEngine();
-
-    void smartSearch(arangodb::velocypack::Slice,
-                     arangodb::velocypack::Builder&) override;
-
-    void smartSearchBFS(arangodb::velocypack::Slice,
-                       arangodb::velocypack::Builder&) override;
-
-    void smartSearchShortestPath(arangodb::velocypack::Slice,
-                                 arangodb::velocypack::Builder&) override;
 };
 
 } // namespace traverser

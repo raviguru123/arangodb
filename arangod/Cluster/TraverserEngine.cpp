@@ -348,18 +348,5 @@ TraverserEngine::TraverserEngine(TRI_vocbase_t* vocbase,
   }
 }
 
-
 TraverserEngine::~TraverserEngine() {
-}
-
-void TraverserEngine::smartSearch(VPackSlice, VPackBuilder&) {
-  THROW_ARANGO_EXCEPTION(TRI_ERROR_ONLY_ENTERPRISE);
-}
-
-void TraverserEngine::smartSearchBFS(VPackSlice, VPackBuilder&) {
-  THROW_ARANGO_EXCEPTION(TRI_ERROR_ONLY_ENTERPRISE);
-}
-
-void TraverserEngine::smartSearchShortestPath(VPackSlice, VPackBuilder&) {
-  THROW_ARANGO_EXCEPTION(TRI_ERROR_ONLY_ENTERPRISE);
 }

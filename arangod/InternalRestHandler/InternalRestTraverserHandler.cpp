@@ -239,12 +239,18 @@ void InternalRestTraverserHandler::queryEngine() {
       }
       engine->getVertexData(keysSlice, depthSlice.getNumericValue<size_t>(), result);
     }
-  } else if (option == "smartSearch") {
-    engine->smartSearch(body, result);
-  } else if (option == "smartSearchBFS") {
-    engine->smartSearchBFS(body, result);
-  } else if (option == "smartShortestPath") {
-    engine->smartSearchShortestPath(body, result);
+  } else {
+    enterpriseSmartSearch(option, engine, body, result);
+ }
+  generateResult(ResponseCode::OK, result.slice(), engine->context());
+}
+
+#ifndef USE_ENTERPRISE
+void InternalRestTraverserHandler::enterpriseSmartSearch(
+    std::string const& option, traverser::BaseTraverserEngine* engine,
+    VPackSlice body, VPackBuider& result) {
+  if (option == "smartSearch" || option == "smartSearchBFS" || "smartShortestPath") {
+    THROW_ARANGO_EXCEPTION(TRI_ERROR_ONLY_ENTERPRISE);
   } else {
     // PATH Info wrong other error
     generateError(
@@ -252,8 +258,8 @@ void InternalRestTraverserHandler::queryEngine() {
         "");
     return;
   }
-  generateResult(ResponseCode::OK, result.slice(), engine->context());
 }
+#endif
 
 void InternalRestTraverserHandler::destroyEngine() {
   std::vector<std::string> const& suffixes = _request->decodedSuffixes();

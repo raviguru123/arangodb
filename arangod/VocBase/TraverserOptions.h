@@ -138,8 +138,6 @@ struct BaseTraverserOptions {
   // in the given builder.
   virtual void toVelocyPackIndexes(arangodb::velocypack::Builder&) const;
 
-  EdgeCursor* nextCursor(ManagedDocumentResult*, arangodb::velocypack::Slice) const;
-
  protected:
 
   // Requires an open Object in the given builder an
@@ -238,13 +236,15 @@ struct TraverserOptions : public BaseTraverserOptions {
 
 struct ShortestPathOptions : public BaseTraverserOptions {
 
- private:
+ protected:
 
   double _defaultWeight;
   std::string _weightAttribute;
   std::vector<LookupInfo> _reverseLookupInfos;
 
  public:
+
+  enum DIRECTION {FORWARD, BACKWARD};
 
   explicit ShortestPathOptions(arangodb::Transaction* trx)
     : BaseTraverserOptions(trx),
@@ -285,6 +285,17 @@ struct ShortestPathOptions : public BaseTraverserOptions {
   void addReverseLookupInfo(aql::Ast* ast, std::string const& collectionName,
                             std::string const& attributeName,
                             aql::AstNode* condition);
+
+  template<enum DIRECTION>
+  EdgeCursor* nextCursor(ManagedDocumentResult*, arangodb::velocypack::Slice) const;
+
+ private:
+
+  template<enum DIRECTION>
+  EdgeCursor* nextCursorLocal(ManagedDocumentResult*,
+                              arangodb::velocypack::Slice,
+                              std::vector<LookupInfo>&) const;
+
 };
 
 }
