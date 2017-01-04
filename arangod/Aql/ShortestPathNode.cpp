@@ -64,11 +64,15 @@ ShortestPathNode::ShortestPathNode(
     ExecutionPlan* plan, size_t id, TRI_vocbase_t* vocbase, AstNode const* direction,
     AstNode const* start, AstNode const* target, AstNode const* graph,
     traverser::ShortestPathOptions* options)
-    : GraphNode(plan, id, vocbase, direction, graph, options),
+    : GraphNode(plan, id, vocbase, options),
       _inStartVariable(nullptr),
       _inTargetVariable(nullptr) {
   TRI_ASSERT(start != nullptr);
   TRI_ASSERT(target != nullptr);
+
+  // We have to call this here because we need a specific implementation
+  // for shortest_path_node.
+  parseGraphAstNodes(direction, graph);
 
   auto ast = _plan->getAst();
   // Let us build the conditions on _from and _to. Just in case we need them.
@@ -102,6 +106,7 @@ ShortestPathNode::ShortestPathNode(
 ShortestPathNode::ShortestPathNode(
     ExecutionPlan* plan, size_t id, TRI_vocbase_t* vocbase,
     std::vector<std::unique_ptr<aql::Collection>> const& edgeColls,
+    std::vector<std::unique_ptr<aql::Collection>> const& reverseEdgeColls,
     std::vector<std::unique_ptr<aql::Collection>> const& vertexColls,
     std::vector<TRI_edge_direction_e> const& directions,
     Variable const* inStartVariable, std::string const& startVertexId,
@@ -111,7 +116,14 @@ ShortestPathNode::ShortestPathNode(
       _inStartVariable(inStartVariable),
       _startVertexId(startVertexId),
       _inTargetVariable(inTargetVariable),
-      _targetVertexId(targetVertexId) {}
+      _targetVertexId(targetVertexId) {
+  for (auto const& it : edgeColls) {
+    // Collections cannot be copied. So we need to create new ones to prevent leaks
+    _edgeColls.emplace_back(std::make_unique<aql::Collection>(
+        it->getName(), _vocbase, TRI_TRANSACTION_READ));
+    _graphInfo.add(VPackValue(it->getName()));
+  }
+}
 
 arangodb::traverser::ShortestPathOptions* ShortestPathNode::options()
     const {
@@ -123,6 +135,21 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan,
     : GraphNode(plan, base),
       _inStartVariable(nullptr),
       _inTargetVariable(nullptr) {
+
+  // Reverse Collections
+  VPackSlice list = base.get("reverseEdgeCollections");
+  if (!list.isArray()) {
+    THROW_ARANGO_EXCEPTION_MESSAGE(
+        TRI_ERROR_QUERY_BAD_JSON_PLAN,
+        "shortest path needs an array of reverse edge collections.");
+  }
+
+  for (auto const& it : VPackArrayIterator(list)) {
+    std::string e = arangodb::basics::VelocyPackHelper::getStringValue(it, "");
+    _reverseEdgeColls.emplace_back(
+        std::make_unique<aql::Collection>(e, _vocbase, TRI_TRANSACTION_READ));
+  }
+
   _options = std::make_unique<arangodb::traverser::ShortestPathOptions>(
       plan->getAst()->query()->trx());
   // Start Vertex
@@ -166,17 +193,7 @@ ShortestPathNode::ShortestPathNode(ExecutionPlan* plan,
 
 void ShortestPathNode::toVelocyPackHelper(VPackBuilder& nodes,
                                           bool verbose) const {
-  ExecutionNode::toVelocyPackHelperGeneric(nodes,
-                                           verbose);  // call base class method
-  nodes.add("database", VPackValue(_vocbase->name()));
-  nodes.add("graph", _graphInfo.slice());
-  nodes.add(VPackValue("directions"));
-  {
-    VPackArrayBuilder guard(&nodes);
-    for (auto const& d : _directions) {
-      nodes.add(VPackValue(d));
-    }
-  }
+  baseToVelocyPackHelper(nodes, verbose);
 
   // In variables
   if (usesStartInVariable()) {
@@ -193,46 +210,8 @@ void ShortestPathNode::toVelocyPackHelper(VPackBuilder& nodes,
     nodes.add("targetVertexId", VPackValue(_targetVertexId));
   }
 
-  if (_graphObj != nullptr) {
-    nodes.add(VPackValue("graphDefinition"));
-    _graphObj->toVelocyPack(nodes, verbose);
-  }
-
-  // Out variables
-  if (usesVertexOutVariable()) {
-    nodes.add(VPackValue("vertexOutVariable"));
-    vertexOutVariable()->toVelocyPack(nodes);
-  }
-  if (usesEdgeOutVariable()) {
-    nodes.add(VPackValue("edgeOutVariable"));
-    edgeOutVariable()->toVelocyPack(nodes);
-  }
-
   // nodes.add(VPackValue("shortestPathFlags"));
   // _options.toVelocyPack(nodes);
-
-  // Traversal Filter Conditions
-
-  TRI_ASSERT(_tmpObjVariable != nullptr);
-  nodes.add(VPackValue("tmpObjVariable"));
-  _tmpObjVariable->toVelocyPack(nodes);
-
-  TRI_ASSERT(_tmpObjVarNode != nullptr);
-  nodes.add(VPackValue("tmpObjVarNode"));
-  _tmpObjVarNode->toVelocyPack(nodes, verbose);
-
-  TRI_ASSERT(_tmpIdNode != nullptr);
-  nodes.add(VPackValue("tmpIdNode"));
-  _tmpIdNode->toVelocyPack(nodes, verbose);
-
-  TRI_ASSERT(_fromCondition != nullptr);
-  nodes.add(VPackValue("fromCondition"));
-  _fromCondition->toVelocyPack(nodes, verbose);
-
-  TRI_ASSERT(_toCondition != nullptr);
-  nodes.add(VPackValue("toCondition"));
-  _toCondition->toVelocyPack(nodes, verbose);
-
 
   // And close it:
   nodes.close();
@@ -243,8 +222,9 @@ ExecutionNode* ShortestPathNode::clone(ExecutionPlan* plan,
                                        bool withProperties) const {
   auto tmp =
       std::make_unique<arangodb::traverser::ShortestPathOptions>(*options());
-  auto c = new ShortestPathNode(plan, _id, _vocbase, _edgeColls, _vertexColls,
-                                _directions, _inStartVariable, _startVertexId,
+  auto c = new ShortestPathNode(plan, _id, _vocbase, _edgeColls,
+                                _reverseEdgeColls, _vertexColls, _directions,
+                                _inStartVariable, _startVertexId,
                                 _inTargetVariable, _targetVertexId, tmp.get());
   tmp.release();
 
@@ -337,6 +317,9 @@ void ShortestPathNode::prepareOptions() {
   auto opts = dynamic_cast<arangodb::traverser::ShortestPathOptions*>(_options.get());
 
   Ast* ast = _plan->getAst();
+
+  TRI_ASSERT(numEdgeColls == _directions.size());
+  TRI_ASSERT(numEdgeColls == _reverseEdgeColls.size());
   // FIXME: _options->_baseLookupInfos.reserve(numEdgeColls);
   // Compute Edge Indexes. First default indexes:
   for (size_t i = 0; i < numEdgeColls; ++i) {
@@ -344,13 +327,13 @@ void ShortestPathNode::prepareOptions() {
       case TRI_EDGE_IN:
         opts->addLookupInfo(ast, _edgeColls[i]->getName(),
                             StaticStrings::ToString, _toCondition);
-        opts->addReverseLookupInfo(ast, _edgeColls[i]->getName(),
+        opts->addReverseLookupInfo(ast, _reverseEdgeColls[i]->getName(),
                                    StaticStrings::FromString, _fromCondition);
         break;
       case TRI_EDGE_OUT:
         opts->addLookupInfo(ast, _edgeColls[i]->getName(),
                             StaticStrings::FromString, _fromCondition);
-        opts->addReverseLookupInfo(ast, _edgeColls[i]->getName(),
+        opts->addReverseLookupInfo(ast, _reverseEdgeColls[i]->getName(),
                                    StaticStrings::ToString, _toCondition);
         break;
       case TRI_EDGE_ANY:

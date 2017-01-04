@@ -50,15 +50,15 @@ class ShortestPathNode : public GraphNode {
 
   /// @brief Internal constructor to clone the node.
  private:
-  ShortestPathNode(ExecutionPlan* plan, size_t id, TRI_vocbase_t* vocbase,
-                   std::vector<std::unique_ptr<aql::Collection>> const& edgeColls,
-                   std::vector<std::unique_ptr<aql::Collection>> const& vertexColls,
-                   std::vector<TRI_edge_direction_e> const& directions,
-                   Variable const* inStartVariable,
-                   std::string const& startVertexId,
-                   Variable const* inTargetVariable,
-                   std::string const& targetVertexId,
-                   traverser::ShortestPathOptions* options);
+  ShortestPathNode(
+      ExecutionPlan* plan, size_t id, TRI_vocbase_t* vocbase,
+      std::vector<std::unique_ptr<aql::Collection>> const& edgeColls,
+      std::vector<std::unique_ptr<aql::Collection>> const& reverseEdgeColls,
+      std::vector<std::unique_ptr<aql::Collection>> const& vertexColls,
+      std::vector<TRI_edge_direction_e> const& directions,
+      Variable const* inStartVariable, std::string const& startVertexId,
+      Variable const* inTargetVariable, std::string const& targetVertexId,
+      traverser::ShortestPathOptions* options);
 
  public:
   /// @brief return the type of the node
@@ -139,6 +139,9 @@ class ShortestPathNode : public GraphNode {
 
  private:
 
+  /// @brief Helper function to parse all collection names / directions
+  void addEdgeColl(std::string const& name, TRI_edge_direction_e dir) override;
+
   /// @brief input variable only used if _vertexId is unused
   Variable const* _inStartVariable;
 
@@ -150,6 +153,10 @@ class ShortestPathNode : public GraphNode {
 
   /// @brief input vertexId only used if _inVariable is unused
   std::string _targetVertexId;
+
+  /// @brief the reverse edge collections
+  std::vector<std::unique_ptr<aql::Collection>> _reverseEdgeColls;
+
 };
 
 } // namespace arangodb::aql

@@ -112,11 +112,14 @@ TraversalNode::TraversalNode(ExecutionPlan* plan, size_t id,
                              TRI_vocbase_t* vocbase, AstNode const* direction,
                              AstNode const* start, AstNode const* graph,
                              TraverserOptions* options)
-    : GraphNode(plan, id, vocbase, direction, graph, options),
+    : GraphNode(plan, id, vocbase, options),
       _pathOutVariable(nullptr),
       _inVariable(nullptr),
       _condition(nullptr) {
   TRI_ASSERT(start != nullptr);
+  // We have to call this here because we need a specific implementation
+  // for shortest_path_node.
+  parseGraphAstNodes(direction, graph);
 
   // Let us build the conditions on _from and _to. Just in case we need them.
   auto ast = _plan->getAst();
@@ -297,35 +300,7 @@ bool TraversalNode::isInRange(uint64_t depth, bool isEdge) const {
 
 void TraversalNode::toVelocyPackHelper(arangodb::velocypack::Builder& nodes,
                                        bool verbose) const {
-  ExecutionNode::toVelocyPackHelperGeneric(nodes,
-                                           verbose);  // call base class method
-
-  nodes.add("database", VPackValue(_vocbase->name()));
-
-  nodes.add("graph", _graphInfo.slice());
-  nodes.add(VPackValue("directions"));
-  {
-    VPackArrayBuilder guard(&nodes);
-    for (auto const& d : _directions) {
-      nodes.add(VPackValue(d));
-    }
-  }
-
-  nodes.add(VPackValue("edgeCollections"));
-  {
-    VPackArrayBuilder guard(&nodes);
-    for (auto const& e : _edgeColls) {
-      nodes.add(VPackValue(e->getName()));
-    }
-  }
-
-  nodes.add(VPackValue("vertexCollections"));
-  {
-    VPackArrayBuilder guard(&nodes);
-    for (auto const& v : _vertexColls) {
-      nodes.add(VPackValue(v->getName()));
-    }
-  }
+  baseToVelocyPackHelper(nodes, verbose);
 
   // In variable
   if (usesInVariable()) {
@@ -349,21 +324,8 @@ void TraversalNode::toVelocyPackHelper(arangodb::velocypack::Builder& nodes,
     nodes.close();
   }
 
-  if (_graphObj != nullptr) {
-    nodes.add(VPackValue("graphDefinition"));
-    _graphObj->toVelocyPack(nodes, verbose);
-  }
-
-  // Out variables
-  if (usesVertexOutVariable()) {
-    nodes.add(VPackValue("vertexOutVariable"));
-    vertexOutVariable()->toVelocyPack(nodes);
-  }
-  if (usesEdgeOutVariable()) {
-    nodes.add(VPackValue("edgeOutVariable"));
-    edgeOutVariable()->toVelocyPack(nodes);
-  }
-  if (usesPathOutVariable()) {
+ // Out variables
+ if (usesPathOutVariable()) {
     nodes.add(VPackValue("pathOutVariable"));
     pathOutVariable()->toVelocyPack(nodes);
   }
@@ -371,29 +333,7 @@ void TraversalNode::toVelocyPackHelper(arangodb::velocypack::Builder& nodes,
   nodes.add(VPackValue("traversalFlags"));
   _options->toVelocyPack(nodes);
 
-  // Traversal Filter Conditions
-
-  TRI_ASSERT(_tmpObjVariable != nullptr);
-  nodes.add(VPackValue("tmpObjVariable"));
-  _tmpObjVariable->toVelocyPack(nodes);
-
-  TRI_ASSERT(_tmpObjVarNode != nullptr);
-  nodes.add(VPackValue("tmpObjVarNode"));
-  _tmpObjVarNode->toVelocyPack(nodes, verbose);
-
-  TRI_ASSERT(_tmpIdNode != nullptr);
-  nodes.add(VPackValue("tmpIdNode"));
-  _tmpIdNode->toVelocyPack(nodes, verbose);
-
-  TRI_ASSERT(_fromCondition != nullptr);
-  nodes.add(VPackValue("fromCondition"));
-  _fromCondition->toVelocyPack(nodes, verbose);
-
-  TRI_ASSERT(_toCondition != nullptr);
-  nodes.add(VPackValue("toCondition"));
-  _toCondition->toVelocyPack(nodes, verbose);
-
-  if (!_globalEdgeConditions.empty()) {
+   if (!_globalEdgeConditions.empty()) {
     nodes.add(VPackValue("globalEdgeConditions"));
     nodes.openArray();
     for (auto const& it : _globalEdgeConditions) {

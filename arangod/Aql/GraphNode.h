@@ -43,7 +43,6 @@ class GraphNode : public ExecutionNode {
  protected:
   /// @brief Constructor for a new node parsed from AQL
   GraphNode(ExecutionPlan* plan, size_t id, TRI_vocbase_t* vocbase,
-            AstNode const* direction, AstNode const* graph,
             traverser::BaseTraverserOptions* options);
 
   /// @brief Deserializer for node from VPack
@@ -122,6 +121,26 @@ class GraphNode : public ExecutionNode {
     TRI_ASSERT(arangodb::ServerState::instance()->isCoordinator());
     return &_engines;
   }
+
+ protected:
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief Export to VelocyPack
+  ////////////////////////////////////////////////////////////////////////////////
+
+  void baseToVelocyPackHelper(arangodb::velocypack::Builder&, bool) const;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief Helper function to parse all collection names / directions
+  ////////////////////////////////////////////////////////////////////////////////
+
+  virtual void addEdgeColl(std::string const& name, TRI_edge_direction_e dir);
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief Helper function to parse the graph and direction nodes
+  ////////////////////////////////////////////////////////////////////////////////
+
+  void parseGraphAstNodes(AstNode const* direction, AstNode const* graph);
 
   ////////////////////////////////////////////////////////////////////////////////
   /// SECTION Shared subclass variables

@@ -53,8 +53,8 @@ static TRI_edge_direction_e parseDirection (AstNode const* node) {
 }
 
 GraphNode::GraphNode(ExecutionPlan* plan, size_t id, TRI_vocbase_t* vocbase,
-       AstNode const* direction, AstNode const* graph, traverser::BaseTraverserOptions* options) :
-      ExecutionNode(plan, id),
+                     traverser::BaseTraverserOptions* options)
+    : ExecutionNode(plan, id),
       _vocbase(vocbase),
       _vertexOutVariable(nullptr),
       _edgeOutVariable(nullptr),
@@ -68,213 +68,8 @@ GraphNode::GraphNode(ExecutionPlan* plan, size_t id, TRI_vocbase_t* vocbase,
       _isSmart(false),
       _options(options) {
   TRI_ASSERT(_vocbase != nullptr);
-  TRI_ASSERT(graph != nullptr);
   TRI_ASSERT(options != nullptr);
   TRI_ASSERT(_options.get() != nullptr);
-
-  TRI_edge_direction_e baseDirection = parseDirection(direction);
-
-  std::unordered_map<std::string, TRI_edge_direction_e> seenCollections;
-
-
-  auto addEdgeColl = [&](std::string const& n, TRI_edge_direction_e dir) -> void {
-    if (_isSmart) {
-      if (n.compare(0, 6, "_from_") == 0) {
-        if (dir != TRI_EDGE_IN) {
-          _directions.emplace_back(TRI_EDGE_OUT);
-          _edgeColls.emplace_back(std::make_unique<aql::Collection>(
-              n, _vocbase, TRI_TRANSACTION_READ));
-        }
-        return;
-      } else if (n.compare(0, 4, "_to_") == 0) {
-        if (dir != TRI_EDGE_OUT) {
-          _directions.emplace_back(TRI_EDGE_IN);
-          _edgeColls.emplace_back(std::make_unique<aql::Collection>(
-              n, _vocbase, TRI_TRANSACTION_READ));
-        }
-        return;
-      }
-    }
-
-    if (dir == TRI_EDGE_ANY) {
-      _directions.emplace_back(TRI_EDGE_OUT);
-      _edgeColls.emplace_back(std::make_unique<aql::Collection>(
-          n, _vocbase, TRI_TRANSACTION_READ));
-
-      _directions.emplace_back(TRI_EDGE_IN);
-      _edgeColls.emplace_back(std::make_unique<aql::Collection>(
-          n, _vocbase, TRI_TRANSACTION_READ));
-    } else {
-      _directions.emplace_back(dir);
-      _edgeColls.emplace_back(std::make_unique<aql::Collection>(
-          n, _vocbase, TRI_TRANSACTION_READ));
-    }
-  };
-
-  if (graph->type == NODE_TYPE_COLLECTION_LIST) {
-    size_t edgeCollectionCount = graph->numMembers();
-
-    _graphInfo.openArray();
-    _edgeColls.reserve(edgeCollectionCount);
-    _directions.reserve(edgeCollectionCount);
-
-    // First determine whether all edge collections are smart and sharded
-    // like a common collection:
-    auto ci = ClusterInfo::instance();
-    if (ServerState::instance()->isRunningInCluster()) {
-      _isSmart = true;
-      std::string distributeShardsLike;
-      for (size_t i = 0; i < edgeCollectionCount; ++i) {
-        auto col = graph->getMember(i);
-        if (col->type == NODE_TYPE_DIRECTION) {
-          col = col->getMember(1); // The first member always is the collection
-        }
-        std::string n = col->getString();
-        auto c = ci->getCollection(_vocbase->name(), n);
-        if (!c->isSmart() || c->distributeShardsLike().empty()) {
-          _isSmart = false;
-          break;
-        }
-        if (distributeShardsLike.empty()) {
-          distributeShardsLike = c->distributeShardsLike();
-        } else if (distributeShardsLike != c->distributeShardsLike()) {
-          _isSmart = false;
-          break;
-        }
-      }
-    }
-   
-    auto resolver = std::make_unique<CollectionNameResolver>(vocbase);
-    // List of edge collection names
-    for (size_t i = 0; i < edgeCollectionCount; ++i) {
-      auto col = graph->getMember(i);
-      TRI_edge_direction_e dir = TRI_EDGE_ANY;
-      
-      if (col->type == NODE_TYPE_DIRECTION) {
-        // We have a collection with special direction.
-        dir = parseDirection(col->getMember(0));
-        col = col->getMember(1);
-      } else {
-        dir = baseDirection;
-      }
-        
-      std::string eColName = col->getString();
-      
-      // now do some uniqueness checks for the specified collections
-      auto it = seenCollections.find(eColName);
-      if (it != seenCollections.end()) {
-        if ((*it).second != dir) {
-          std::string msg("conflicting directions specified for collection '" +
-                          std::string(eColName));
-          THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_ARANGO_COLLECTION_TYPE_INVALID,
-                                         msg);
-        }
-        // do not re-add the same collection!
-        continue;
-      }
-      seenCollections.emplace(eColName, dir);
-      
-      if (resolver->getCollectionTypeCluster(eColName) != TRI_COL_TYPE_EDGE) {
-        std::string msg("collection type invalid for collection '" +
-                        std::string(eColName) +
-                        ": expecting collection type 'edge'");
-        THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_ARANGO_COLLECTION_TYPE_INVALID,
-                                       msg);
-      }
-      
-      _graphInfo.add(VPackValue(eColName));
-      if (ServerState::instance()->isRunningInCluster()) {
-        auto c = ci->getCollection(_vocbase->name(), eColName);
-        if (!c->isSmart()) {
-          addEdgeColl(eColName, dir);
-        } else {
-          std::vector<std::string> names;
-          if (_isSmart) {
-            names = c->realNames();
-          } else {
-            names = c->realNamesForRead();
-          }
-          for (auto const& name : names) {
-            addEdgeColl(name, dir);
-          }
-        }
-      } else {
-        addEdgeColl(eColName, dir);
-      }
-    }
-    _graphInfo.close();
-  } else {
-    if (_edgeColls.empty()) {
-      if (graph->isStringValue()) {
-        std::string graphName = graph->getString();
-        _graphInfo.add(VPackValue(graphName));
-        _graphObj = plan->getAst()->query()->lookupGraphByName(graphName);
-
-        if (_graphObj == nullptr) {
-          THROW_ARANGO_EXCEPTION(TRI_ERROR_GRAPH_NOT_FOUND);
-        }
-
-        auto eColls = _graphObj->edgeCollections();
-        size_t length = eColls.size();
-        if (length == 0) {
-          THROW_ARANGO_EXCEPTION(TRI_ERROR_GRAPH_EMPTY);
-        }
-
-        // First determine whether all edge collections are smart and sharded
-        // like a common collection:
-        auto ci = ClusterInfo::instance();
-        if (ServerState::instance()->isRunningInCluster()) {
-          _isSmart = true;
-          std::string distributeShardsLike;
-          for (auto const& n : eColls) {
-            auto c = ci->getCollection(_vocbase->name(), n);
-            if (!c->isSmart() || c->distributeShardsLike().empty()) {
-              _isSmart = false;
-              break;
-            }
-            if (distributeShardsLike.empty()) {
-              distributeShardsLike = c->distributeShardsLike();
-            } else if (distributeShardsLike != c->distributeShardsLike()) {
-              _isSmart = false;
-              break;
-            }
-          }
-        }
-        
-        for (const auto& n : eColls) {
-          if (ServerState::instance()->isRunningInCluster()) {
-            auto c = ci->getCollection(_vocbase->name(), n);
-            if (!c->isSmart()) {
-              addEdgeColl(n, baseDirection);
-            } else {
-              std::vector<std::string> names;
-              if (_isSmart) {
-                names = c->realNames();
-              } else {
-                names = c->realNamesForRead();
-              }
-              for (auto const& name : names) {
-                addEdgeColl(name, baseDirection);
-              }
-            }
-          } else {
-            addEdgeColl(n, baseDirection);
-          }
-        }
-
-        auto vColls = _graphObj->vertexCollections();
-        length = vColls.size();
-        if (length == 0) {
-          THROW_ARANGO_EXCEPTION(TRI_ERROR_GRAPH_EMPTY);
-        }
-        _vertexColls.reserve(length);
-        for (auto const& v : vColls) {
-          _vertexColls.emplace_back(std::make_unique<aql::Collection>(
-              v, _vocbase, TRI_TRANSACTION_READ));
-        }
-      }
-    }
-  }
 }
 
 GraphNode::GraphNode(ExecutionPlan* plan,
@@ -470,4 +265,265 @@ Variable const* GraphNode::getTemporaryVariable() const {
   return _tmpObjVariable;
 }
 
+void GraphNode::baseToVelocyPackHelper(VPackBuilder& nodes,
+                                       bool verbose) const {
+  ExecutionNode::toVelocyPackHelperGeneric(nodes,
+                                           verbose);  // call base class method
 
+  nodes.add("database", VPackValue(_vocbase->name()));
+
+  nodes.add("graph", _graphInfo.slice());
+  nodes.add(VPackValue("directions"));
+  {
+    VPackArrayBuilder guard(&nodes);
+    for (auto const& d : _directions) {
+      nodes.add(VPackValue(d));
+    }
+  }
+
+  nodes.add(VPackValue("edgeCollections"));
+  {
+    VPackArrayBuilder guard(&nodes);
+    for (auto const& e : _edgeColls) {
+      nodes.add(VPackValue(e->getName()));
+    }
+  }
+
+  nodes.add(VPackValue("vertexCollections"));
+  {
+    VPackArrayBuilder guard(&nodes);
+    for (auto const& v : _vertexColls) {
+      nodes.add(VPackValue(v->getName()));
+    }
+  }
+
+  if (_graphObj != nullptr) {
+    nodes.add(VPackValue("graphDefinition"));
+    _graphObj->toVelocyPack(nodes, verbose);
+  }
+
+  // Out variables
+  if (usesVertexOutVariable()) {
+    nodes.add(VPackValue("vertexOutVariable"));
+    vertexOutVariable()->toVelocyPack(nodes);
+  }
+  if (usesEdgeOutVariable()) {
+    nodes.add(VPackValue("edgeOutVariable"));
+    edgeOutVariable()->toVelocyPack(nodes);
+  }
+
+  // Traversal Filter Conditions
+
+  TRI_ASSERT(_tmpObjVariable != nullptr);
+  nodes.add(VPackValue("tmpObjVariable"));
+  _tmpObjVariable->toVelocyPack(nodes);
+
+  TRI_ASSERT(_tmpObjVarNode != nullptr);
+  nodes.add(VPackValue("tmpObjVarNode"));
+  _tmpObjVarNode->toVelocyPack(nodes, verbose);
+
+  TRI_ASSERT(_tmpIdNode != nullptr);
+  nodes.add(VPackValue("tmpIdNode"));
+  _tmpIdNode->toVelocyPack(nodes, verbose);
+
+  TRI_ASSERT(_fromCondition != nullptr);
+  nodes.add(VPackValue("fromCondition"));
+  _fromCondition->toVelocyPack(nodes, verbose);
+
+  TRI_ASSERT(_toCondition != nullptr);
+  nodes.add(VPackValue("toCondition"));
+  _toCondition->toVelocyPack(nodes, verbose);
+}
+
+#ifndef USE_ENTERPRISE
+void GraphNode::addEdgeColl(std::string const& n, TRI_edge_direction_e dir) {
+  if (dir == TRI_EDGE_ANY) {
+    _directions.emplace_back(TRI_EDGE_OUT);
+    _edgeColls.emplace_back(
+        std::make_unique<aql::Collection>(n, _vocbase, TRI_TRANSACTION_READ));
+
+    _directions.emplace_back(TRI_EDGE_IN);
+    _edgeColls.emplace_back(
+        std::make_unique<aql::Collection>(n, _vocbase, TRI_TRANSACTION_READ));
+  } else {
+    _directions.emplace_back(dir);
+    _edgeColls.emplace_back(
+        std::make_unique<aql::Collection>(n, _vocbase, TRI_TRANSACTION_READ));
+  }
+}
+#endif
+
+void GraphNode::parseGraphAstNodes(AstNode const* direction, AstNode const* graph) {
+  TRI_ASSERT(graph != nullptr);
+  TRI_ASSERT(direction != nullptr);
+
+  TRI_edge_direction_e baseDirection = parseDirection(direction);
+
+  std::unordered_map<std::string, TRI_edge_direction_e> seenCollections;
+
+
+  if (graph->type == NODE_TYPE_COLLECTION_LIST) {
+    size_t edgeCollectionCount = graph->numMembers();
+
+    _graphInfo.openArray();
+    _edgeColls.reserve(edgeCollectionCount);
+    _directions.reserve(edgeCollectionCount);
+
+    // First determine whether all edge collections are smart and sharded
+    // like a common collection:
+    auto ci = ClusterInfo::instance();
+    if (ServerState::instance()->isRunningInCluster()) {
+      _isSmart = true;
+      std::string distributeShardsLike;
+      for (size_t i = 0; i < edgeCollectionCount; ++i) {
+        auto col = graph->getMember(i);
+        if (col->type == NODE_TYPE_DIRECTION) {
+          col = col->getMember(1); // The first member always is the collection
+        }
+        std::string n = col->getString();
+        auto c = ci->getCollection(_vocbase->name(), n);
+        if (!c->isSmart() || c->distributeShardsLike().empty()) {
+          _isSmart = false;
+          break;
+        }
+        if (distributeShardsLike.empty()) {
+          distributeShardsLike = c->distributeShardsLike();
+        } else if (distributeShardsLike != c->distributeShardsLike()) {
+          _isSmart = false;
+          break;
+        }
+      }
+    }
+   
+    auto resolver = std::make_unique<CollectionNameResolver>(_vocbase);
+    // List of edge collection names
+    for (size_t i = 0; i < edgeCollectionCount; ++i) {
+      auto col = graph->getMember(i);
+      TRI_edge_direction_e dir = TRI_EDGE_ANY;
+      
+      if (col->type == NODE_TYPE_DIRECTION) {
+        // We have a collection with special direction.
+        dir = parseDirection(col->getMember(0));
+        col = col->getMember(1);
+      } else {
+        dir = baseDirection;
+      }
+        
+      std::string eColName = col->getString();
+      
+      // now do some uniqueness checks for the specified collections
+      auto it = seenCollections.find(eColName);
+      if (it != seenCollections.end()) {
+        if ((*it).second != dir) {
+          std::string msg("conflicting directions specified for collection '" +
+                          std::string(eColName));
+          THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_ARANGO_COLLECTION_TYPE_INVALID,
+                                         msg);
+        }
+        // do not re-add the same collection!
+        continue;
+      }
+      seenCollections.emplace(eColName, dir);
+      
+      if (resolver->getCollectionTypeCluster(eColName) != TRI_COL_TYPE_EDGE) {
+        std::string msg("collection type invalid for collection '" +
+                        std::string(eColName) +
+                        ": expecting collection type 'edge'");
+        THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_ARANGO_COLLECTION_TYPE_INVALID,
+                                       msg);
+      }
+      
+      _graphInfo.add(VPackValue(eColName));
+      if (ServerState::instance()->isRunningInCluster()) {
+        auto c = ci->getCollection(_vocbase->name(), eColName);
+        if (!c->isSmart()) {
+          addEdgeColl(eColName, dir);
+        } else {
+          std::vector<std::string> names;
+          if (_isSmart) {
+            names = c->realNames();
+          } else {
+            names = c->realNamesForRead();
+          }
+          for (auto const& name : names) {
+            addEdgeColl(name, dir);
+          }
+        }
+      } else {
+        addEdgeColl(eColName, dir);
+      }
+    }
+    _graphInfo.close();
+  } else {
+    if (_edgeColls.empty()) {
+      if (graph->isStringValue()) {
+        std::string graphName = graph->getString();
+        _graphInfo.add(VPackValue(graphName));
+        _graphObj = plan()->getAst()->query()->lookupGraphByName(graphName);
+
+        if (_graphObj == nullptr) {
+          THROW_ARANGO_EXCEPTION(TRI_ERROR_GRAPH_NOT_FOUND);
+        }
+
+        auto eColls = _graphObj->edgeCollections();
+        size_t length = eColls.size();
+        if (length == 0) {
+          THROW_ARANGO_EXCEPTION(TRI_ERROR_GRAPH_EMPTY);
+        }
+
+        // First determine whether all edge collections are smart and sharded
+        // like a common collection:
+        auto ci = ClusterInfo::instance();
+        if (ServerState::instance()->isRunningInCluster()) {
+          _isSmart = true;
+          std::string distributeShardsLike;
+          for (auto const& n : eColls) {
+            auto c = ci->getCollection(_vocbase->name(), n);
+            if (!c->isSmart() || c->distributeShardsLike().empty()) {
+              _isSmart = false;
+              break;
+            }
+            if (distributeShardsLike.empty()) {
+              distributeShardsLike = c->distributeShardsLike();
+            } else if (distributeShardsLike != c->distributeShardsLike()) {
+              _isSmart = false;
+              break;
+            }
+          }
+        }
+        
+        for (const auto& n : eColls) {
+          if (ServerState::instance()->isRunningInCluster()) {
+            auto c = ci->getCollection(_vocbase->name(), n);
+            if (!c->isSmart()) {
+              addEdgeColl(n, baseDirection);
+            } else {
+              std::vector<std::string> names;
+              if (_isSmart) {
+                names = c->realNames();
+              } else {
+                names = c->realNamesForRead();
+              }
+              for (auto const& name : names) {
+                addEdgeColl(name, baseDirection);
+              }
+            }
+          } else {
+            addEdgeColl(n, baseDirection);
+          }
+        }
+
+        auto vColls = _graphObj->vertexCollections();
+        length = vColls.size();
+        if (length == 0) {
+          THROW_ARANGO_EXCEPTION(TRI_ERROR_GRAPH_EMPTY);
+        }
+        _vertexColls.reserve(length);
+        for (auto const& v : vColls) {
+          _vertexColls.emplace_back(std::make_unique<aql::Collection>(
+              v, _vocbase, TRI_TRANSACTION_READ));
+        }
+      }
+    }
+  }
+}
