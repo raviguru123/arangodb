@@ -141,6 +141,7 @@ const optionsDocumentation = [
 
 const optionsDefaults = {
   'agencySize': 3,
+  'agencyWaitForSync' : false,
   'agencySupervision': true,
   'build': '',
   'buildType': '',
@@ -3201,7 +3202,13 @@ function runArangodRecovery (instanceInfo, options, script, setup) {
     fs.join('.', 'js', 'server', 'tests', 'recovery', script + '.js')
   ]);
 
-  instanceInfo.pid = executeAndWait(ARANGOD_BIN, argv, options);
+  let binary = ARANGOD_BIN;
+  if (setup) {
+    binary = TOP_DIR + '/scripts/disable-cores.sh';
+    argv.unshift(ARANGOD_BIN);
+  }
+
+  instanceInfo.pid = executeAndWait(binary, argv, options);
 }
 
 const recoveryTests = [

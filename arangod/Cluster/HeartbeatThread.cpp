@@ -217,7 +217,7 @@ void HeartbeatThread::runDBServer() {
           if (agentPool.isObject()) {
             _agency.updateEndpoints(agentPool);
           } else {
-            LOG(ERR) << "Cannot find an agency poersisted in RAFT 8|";
+            LOG(DEBUG) << "Cannot find an agency persisted in RAFT 8|";
           }
           
           VPackSlice shutdownSlice =
@@ -364,7 +364,8 @@ void HeartbeatThread::runCoordinator() {
         break;
       }
 
-      AgencyReadTransaction trx(std::vector<std::string>(
+      AgencyReadTransaction trx
+        (std::vector<std::string>(
           {AgencyCommManager::path("Current/Version"),
            AgencyCommManager::path("Current/Foxxmaster"),
            AgencyCommManager::path("Current/FoxxmasterQueueupdate"),
@@ -372,13 +373,23 @@ void HeartbeatThread::runCoordinator() {
            AgencyCommManager::path("Shutdown"),
            AgencyCommManager::path("Sync/Commands", _myId),
            AgencyCommManager::path("Sync/UserVersion"),
-           AgencyCommManager::path("Target/FailedServers")}));
+           AgencyCommManager::path("Target/FailedServers"), "/.agency"}));
       AgencyCommResult result = _agency.sendTransactionWithFailover(trx, 1.0);
 
       if (!result.successful()) {
         LOG_TOPIC(WARN, Logger::HEARTBEAT)
             << "Heartbeat: Could not read from agency!";
       } else {
+
+          VPackSlice agentPool =
+            result.slice()[0].get(
+              std::vector<std::string>({".agency","pool"}));
+          if (agentPool.isObject()) {
+            _agency.updateEndpoints(agentPool);
+          } else {
+            LOG(DEBUG) << "Cannot find an agency persisted in RAFT 8|";
+          }
+        
         VPackSlice shutdownSlice = result.slice()[0].get(
             std::vector<std::string>({AgencyCommManager::path(), "Shutdown"}));
 

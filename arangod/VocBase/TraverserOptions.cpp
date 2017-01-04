@@ -184,8 +184,6 @@ TraverserOptions::TraverserOptions(
                                    "uniqueEdges: 'global' is not supported, "
                                    "due to unpredictable results. Use 'path' "
                                    "or 'none' instead");
-    uniqueEdges =
-        TraverserOptions::UniquenessLevel::GLOBAL;
   } else {
     uniqueEdges =
         TraverserOptions::UniquenessLevel::PATH;

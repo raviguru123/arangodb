@@ -438,6 +438,7 @@ class AgencyCommManager {
                        std::string& url);
 
   void addEndpoint(std::string const&);
+  void removeEndpoint(std::string const&);
   std::string endpointsString() const;
   std::vector<std::string> endpoints() const;
 
@@ -475,7 +476,6 @@ class AgencyComm {
   static std::string const AGENCY_URL_PREFIX;
   static uint64_t const INITIAL_SLEEP_TIME = 5000;
   static uint64_t const MAX_SLEEP_TIME = 50000;
-  static uint64_t const MAX_TRIES = 3;
 
  public:
   AgencyCommResult sendServerState(double ttl);
@@ -537,14 +537,14 @@ class AgencyComm {
 
   bool ensureStructureInitialized();
 
+  AgencyCommResult sendWithFailover(arangodb::rest::RequestType, double,
+                                    std::string const&, std::string const&);
+
  private:
   bool lock(std::string const&, double, double,
             arangodb::velocypack::Slice const&);
 
   bool unlock(std::string const&, arangodb::velocypack::Slice const&, double);
-
-  AgencyCommResult sendWithFailover(arangodb::rest::RequestType, double,
-                                    std::string const&, std::string const&);
 
   AgencyCommResult send(httpclient::GeneralClientConnection*, rest::RequestType,
                         double, std::string const&, std::string const&);

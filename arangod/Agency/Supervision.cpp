@@ -256,8 +256,7 @@ std::vector<check_t> Supervision::checkCoordinators() {
   std::string currentFoxxmaster;
   try {
     currentFoxxmaster = _snapshot(foxxmaster).getString();
-  } catch (...) {
-  }
+  } catch (...) {}
 
   std::string goodServerId;
   bool foxxmasterOk = false;
@@ -437,7 +436,7 @@ void Supervision::run() {
     while (!this->isStopping()) {
 
       // Get bunch of job IDs from agency for future jobs
-      if (_jobId == 0 || _jobId == _jobIdMax) {
+      if (_agent->leading() && (_jobId == 0 || _jobId == _jobIdMax)) {
         getUniqueIds();  // cannot fail but only hang
       }
 
@@ -610,6 +609,13 @@ void Supervision::workJobs() {
 
 void Supervision::enforceReplication() {
 
+  auto const& todo = _snapshot(toDoPrefix).children();
+  auto const& pending = _snapshot(pendingPrefix).children();
+
+  if (!todo.empty() || !pending.empty()) { // This is low priority
+    return;
+  }
+
   auto const& plannedDBs = _snapshot(planColPrefix).children();
   auto available = Job::availableServers(_snapshot);
 
@@ -629,19 +635,19 @@ void Supervision::enforceReplication() {
         clone = !col("distributeShardsLike").slice().copyString().empty();
       } catch (...) {}
 
-      auto const& failed = _snapshot("failedServersPrefix").children();
+      auto const& failed = _snapshot(failedServersPrefix).children();
 
       if (!clone) {
         for (auto const& shard_ : col("shards").children()) { // Pl shards
           auto const& shard = *(shard_.second);
-
+          
           size_t actualReplicationFactor = shard.slice().length();
           for (const auto& i : VPackArrayIterator(shard.slice())) {
             if (failed.find(i.copyString())!=failed.end()) {
               --actualReplicationFactor;
             }
           }
-
+          
           if (actualReplicationFactor > 0 && // Need at least one survived
               replicationFactor > actualReplicationFactor && // Planned higher
               available.size() > shard.slice().length()) { // Any servers available
@@ -651,8 +657,8 @@ void Supervision::enforceReplication() {
                   available.begin(), available.end(), i.copyString()),
                 available.end());
             }
-
-            size_t optimal = replicationFactor - shard.slice().length();
+            
+            size_t optimal = replicationFactor - actualReplicationFactor;
             std::vector<std::string> newFollowers;
             for (size_t i = 0; i < optimal; ++i) {
               auto randIt = available.begin();
@@ -664,9 +670,10 @@ void Supervision::enforceReplication() {
               }
             }
 
-            AddFollower(
+            /*AddFollower(
               _snapshot, _agent, std::to_string(_jobId++), "supervision",
               _agencyPrefix, db_.first, col_.first, shard_.first, newFollowers);
+            */
           }
         }
       }
@@ -908,9 +915,6 @@ void Supervision::getUniqueIds() {
     auto result = transact(_agent, uniq);
 
     if (!result.accepted || result.indices.empty()) {
-      LOG_TOPIC(DEBUG, Logger::AGENCY) << "We have lost agency leadership. "
-                                          "Stopping any supervision processing "
-                                       << __FILE__ << __LINE__;
       return;
     }
 

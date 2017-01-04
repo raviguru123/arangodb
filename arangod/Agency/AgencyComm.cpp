@@ -369,7 +369,7 @@ VPackSlice AgencyCommResult::slice() const { return _vpack->slice(); }
 std::unique_ptr<AgencyCommManager> AgencyCommManager::MANAGER;
 
 AgencyConnectionOptions
-AgencyCommManager::CONNECTION_OPTIONS (2.0, 15.0, 15.0, 5);
+AgencyCommManager::CONNECTION_OPTIONS (15.0, 120.0, 120.0, 100);
 
 void AgencyCommManager::initialize(std::string const& prefix) {
   MANAGER.reset(new AgencyCommManager(prefix));
@@ -445,6 +445,8 @@ std::unique_ptr<GeneralClientConnection> AgencyCommManager::acquire(
   } else {
     if(endpoint.empty()) {
       endpoint = _endpoints.front();
+      LOG_TOPIC(DEBUG, Logger::AGENCYCOMM) << "Using endpoint " << endpoint
+        << " for agency communication, full selection:";
     }
     if (!_unusedConnections[endpoint].empty()) {
       connection.reset(_unusedConnections[endpoint].back().release());
@@ -599,6 +601,16 @@ void AgencyCommManager::addEndpoint(std::string const& endpoint) {
 
     _endpoints.emplace_back(normalized);
   }
+}
+
+void AgencyCommManager::removeEndpoint(std::string const& endpoint) {
+  MUTEX_LOCKER(locker, _lock);
+
+  std::string normalized = Endpoint::unifiedForm(endpoint);
+
+  _endpoints.erase(
+    std::remove(_endpoints.begin(), _endpoints.end(), normalized),
+    _endpoints.end());
 }
 
 std::string AgencyCommManager::endpointsString() const {
@@ -1182,9 +1194,9 @@ bool AgencyComm::unlock(std::string const& key, VPackSlice const& slice,
 
 
 void AgencyComm::updateEndpoints(arangodb::velocypack::Slice const& current) {
-
+  
   auto stored = AgencyCommManager::MANAGER->endpoints();
-
+  
   for (const auto& i : VPackObjectIterator(current)) {
     auto const endpoint = Endpoint::unifiedForm(i.value.copyString());
     if (std::find(stored.begin(), stored.end(), endpoint) == stored.end()) {
@@ -1192,6 +1204,14 @@ void AgencyComm::updateEndpoints(arangodb::velocypack::Slice const& current) {
         << "Adding endpoint " << endpoint << " to agent pool";
       AgencyCommManager::MANAGER->addEndpoint(endpoint);
     }
+    stored.erase(
+      std::remove(stored.begin(), stored.end(), endpoint), stored.end());    
+  }
+  
+  for (const auto& i : stored) {
+    LOG_TOPIC(INFO, Logger::CLUSTER)
+      << "Removing endpoint " << i << " from agent pool";
+    AgencyCommManager::MANAGER->removeEndpoint(i);
   }
   
 }
@@ -1210,18 +1230,36 @@ AgencyCommResult AgencyComm::sendWithFailover(
   std::string url = initialUrl;
 
   std::chrono::duration<double> waitInterval (.25); // seconds
+  auto started = std::chrono::steady_clock::now();
   auto timeOut = std::chrono::steady_clock::now() +
     std::chrono::duration<double>(timeout);
   double conTimeout = 1.0;
   
-  for (uint64_t tries = 0; tries < MAX_TRIES; ++tries) {
+  int tries = 0;
+  while (true) {  // will be left by timeout eventually
 
     // Raise waits to a maximum 10 seconds
     auto waitUntil = std::chrono::steady_clock::now() + waitInterval;
-    if (waitInterval.count() < 5.0) { 
-      waitInterval *= 2;
+    
+    // timeout exit startegy
+    if (std::chrono::steady_clock::now() < timeOut) {
+      if (tries > 0) {
+        std::this_thread::sleep_for(waitUntil-std::chrono::steady_clock::now());
+        if (waitInterval.count() < 5.0) { 
+          waitInterval *= 1.5;
+        }
+      }
+    } else {
+      LOG_TOPIC(DEBUG, Logger::AGENCYCOMM)
+        << "Unsuccessful AgencyComm: Timeout"
+        << "errorCode: " << result.errorCode()
+        << " errorMessage: " << result.errorMessage()
+        << " errorDetails: " << result.errorDetails();
+      return result;
     }
     
+    ++tries;
+
     if (connection == nullptr) {
       AgencyCommResult result(400, "No endpoints for agency found.");
       LOG_TOPIC(ERR, Logger::AGENCYCOMM) << result._message;
@@ -1231,7 +1269,11 @@ AgencyCommResult AgencyComm::sendWithFailover(
     if (1 < tries) {
       LOG_TOPIC(WARN, Logger::AGENCYCOMM)
         << "Retrying agency communication at '" << endpoint
-        << "', tries: " << tries;
+        << "', tries: " << tries << " ("
+        << 1.e-2 * (
+          std::round(
+            1.e+2 * std::chrono::duration<double>(
+              std::chrono::steady_clock::now() - started).count())) << "s)";
     }
     
     // try to send; if we fail completely, do not retry
@@ -1239,8 +1281,8 @@ AgencyCommResult AgencyComm::sendWithFailover(
       result = send(connection.get(), method, conTimeout, url, body);
     } catch (...) {
       AgencyCommManager::MANAGER->failed(std::move(connection), endpoint);
+      endpoint.clear();
       connection = AgencyCommManager::MANAGER->acquire(endpoint);
-      
       continue;
     }
     
@@ -1253,10 +1295,9 @@ AgencyCommResult AgencyComm::sendWithFailover(
     // break on a watch timeout (drop connection)
     if (result._statusCode == 0) {
       AgencyCommManager::MANAGER->failed(std::move(connection), endpoint);
-      
+      endpoint.clear();
       connection = AgencyCommManager::MANAGER->acquire(endpoint);
       continue;
-      
     }
     
     // sometimes the agency will return a 307 (temporary redirect)
@@ -1266,6 +1307,7 @@ AgencyCommResult AgencyComm::sendWithFailover(
       endpoint = AgencyCommManager::MANAGER->redirect(
         std::move(connection), endpoint, result._location, url);
       connection = AgencyCommManager::MANAGER->acquire(endpoint);
+      waitInterval = std::chrono::duration<double>(.25);
       continue;
     }
     
@@ -1277,20 +1319,8 @@ AgencyCommResult AgencyComm::sendWithFailover(
 
     // here we have failed and want to try next endpoint
     AgencyCommManager::MANAGER->failed(std::move(connection), endpoint);
+    endpoint.clear();
     connection = AgencyCommManager::MANAGER->acquire(endpoint);
-
-    // timeout exit startegy
-    if (std::chrono::steady_clock::now() < timeOut) {
-      std::this_thread::sleep_for(waitUntil-std::chrono::steady_clock::now());
-    } else {
-      LOG_TOPIC(DEBUG, Logger::AGENCYCOMM)
-        << "Unsuccessful AgencyComm: Timeout"
-        << "errorCode: " << result.errorCode()
-        << " errorMessage: " << result.errorMessage()
-        << " errorDetails: " << result.errorDetails();
-      return result;
-    }
-    
   }
 
   // other error
@@ -1347,7 +1377,7 @@ AgencyCommResult AgencyComm::send(
 
   if (response == nullptr) {
     result._message = "could not send request to agency";
-    LOG_TOPIC(TRACE, Logger::AGENCYCOMM) << "sending request to agency failed";
+    LOG_TOPIC(TRACE, Logger::AGENCYCOMM) << "could not send request to agency";
 
     return result;
   }
