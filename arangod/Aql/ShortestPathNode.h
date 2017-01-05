@@ -154,9 +154,6 @@ class ShortestPathNode : public GraphNode {
   /// @brief input vertexId only used if _inVariable is unused
   std::string _targetVertexId;
 
-  /// @brief the reverse edge collections
-  std::vector<std::unique_ptr<aql::Collection>> _reverseEdgeColls;
-
 };
 
 } // namespace arangodb::aql

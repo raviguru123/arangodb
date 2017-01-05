@@ -90,6 +90,10 @@ class GraphNode : public ExecutionNode {
     return _edgeColls;
   }
 
+  std::vector<std::unique_ptr<aql::Collection>> const& reverseEdgeColls() const {
+    return _reverseEdgeColls;
+  }
+
   std::vector<std::unique_ptr<aql::Collection>> const& vertexColls() const {
     return _vertexColls;
   }
@@ -163,6 +167,9 @@ class GraphNode : public ExecutionNode {
 
   /// @brief the edge collections
   std::vector<std::unique_ptr<aql::Collection>> _edgeColls;
+
+  /// @brief the reverse edge collections (ShortestPathOnly)
+  std::vector<std::unique_ptr<aql::Collection>> _reverseEdgeColls;
 
   /// @brief the vertex collection names
   std::vector<std::unique_ptr<aql::Collection>> _vertexColls;

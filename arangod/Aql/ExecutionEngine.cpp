@@ -876,6 +876,21 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
       }
     }
 
+    std::vector<std::unique_ptr<arangodb::aql::Collection>> const& reverseEdges = en->reverseEdgeColls();
+    if (!reverseEdges.empty()) {
+      TRI_ASSERT(reverseEdges.size() == length);
+      for (size_t i = 0; i < length; ++i) {
+        auto shardIds = reverseEdges[i]->shardIds();
+        for (auto const& shard : *shardIds) {
+          auto serverList = clusterInfo->getResponsibleServer(shard);
+          TRI_ASSERT(!serverList->empty());
+          auto map = mappingServerToCollections.find((*serverList)[0]);
+          TRI_ASSERT(map != mappingServerToCollections.end());
+          map->second.backwardEdgeShards[i].emplace_back(shard);
+        }
+      }
+    }
+
     std::vector<std::unique_ptr<arangodb::aql::Collection>> const& vertices =
         en->vertexColls();
     if (vertices.empty()) {
