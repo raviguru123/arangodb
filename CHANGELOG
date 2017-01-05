@@ -1,6 +1,10 @@
 devel
 -----
 
+* made shortest_path computation aware of SmartGraph features (Enterprise
+Only) which will give a good performance boost on computing single-pair
+shortest-paths in a sharded SmartGraph.
+
 * upgraded Boost version to 1.62.0
 
 * added optional detail flag for db.<collection>.count()
