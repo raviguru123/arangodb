@@ -941,7 +941,11 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
     //     "vertices" : {
     //       "v1": [<shards of v1>], // may be empty
     //       "v2": [<shards of v2>]  // may be empty
-    //     }
+    //     },
+    //     "reverseEdges" : [
+    //       [ <shards of reverse edge collection 1> ],
+    //       [ <shards of reverse edge collection 2> ]
+    //     ]
     //   }
     // }
 
