@@ -226,8 +226,6 @@ GraphNode::GraphNode(
 void GraphNode::enhanceEngineInfo(VPackBuilder& builder) const {
   if (_graphObj != nullptr) {
     _graphObj->enhanceEngineInfo(builder);
-  } else {
-    // TODO enhance the Info based on EdgeCollections.
   }
 }
 #endif

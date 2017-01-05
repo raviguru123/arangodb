@@ -791,7 +791,8 @@ void TraverserOptions::linkTraverser(
 
 ShortestPathOptions::ShortestPathOptions(arangodb::aql::Query* query,
                                          VPackSlice info,
-                                         VPackSlice collections)
+                                         VPackSlice collections,
+                                         VPackSlice reverseCollections)
     : BaseTraverserOptions(query, info, collections),
       _defaultWeight(1),
       _weightAttribute("") {
@@ -802,10 +803,10 @@ ShortestPathOptions::ShortestPathOptions(arangodb::aql::Query* query,
                                    "The options require a reverseLookupInfos");
   }
   size_t length = read.length();
-  TRI_ASSERT(read.length() == collections.length());
+  TRI_ASSERT(read.length() == reverseCollections.length());
   _reverseLookupInfos.reserve(length);
   for (size_t j = 0; j < length; ++j) {
-    _reverseLookupInfos.emplace_back(query, read.at(j), collections.at(j));
+    _reverseLookupInfos.emplace_back(query, read.at(j), reverseCollections.at(j));
   }
 
 }

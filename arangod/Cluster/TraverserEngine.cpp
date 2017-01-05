@@ -41,6 +41,7 @@ static const std::string OPTIONS = "options";
 static const std::string SHARDS = "shards";
 static const std::string TYPE = "type";
 static const std::string EDGES = "edges";
+static const std::string BACKWARDEDGES = "reverseEdges";
 static const std::string VARIABLES = "variables";
 static const std::string VERTICES = "vertices";
 
@@ -330,6 +331,7 @@ TraverserEngine::TraverserEngine(TRI_vocbase_t* vocbase,
   }
   VPackSlice shardsSlice = info.get(SHARDS);
   VPackSlice edgesSlice = shardsSlice.get(EDGES);
+  VPackSlice backwardSlice = shardsSlice.get(BACKWARDEDGES);
   VPackSlice typeSlice = optsSlice.get(TYPE);
   if (!typeSlice.isString()) {
     THROW_ARANGO_EXCEPTION_MESSAGE(
@@ -338,7 +340,7 @@ TraverserEngine::TraverserEngine(TRI_vocbase_t* vocbase,
   }
   StringRef type(typeSlice);
   if (type == "shortest") {
-    _opts.reset(new ShortestPathOptions(_query, optsSlice, edgesSlice));
+    _opts.reset(new ShortestPathOptions(_query, optsSlice, edgesSlice, backwardSlice));
   } else if (type == "traversal") {
     _opts.reset(new TraverserOptions(_query, optsSlice, edgesSlice));
   } else {

@@ -210,6 +210,16 @@ void ShortestPathNode::toVelocyPackHelper(VPackBuilder& nodes,
     nodes.add("targetVertexId", VPackValue(_targetVertexId));
   }
 
+  // Reverse collections
+  nodes.add(VPackValue("reverseEdgeCollections"));
+  {
+    VPackArrayBuilder guard(&nodes);
+    for (auto const& e : _edgeColls) {
+      nodes.add(VPackValue(e->getName()));
+    }
+  }
+
+
   // nodes.add(VPackValue("shortestPathFlags"));
   // _options.toVelocyPack(nodes);
 

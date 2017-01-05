@@ -251,8 +251,9 @@ struct ShortestPathOptions : public BaseTraverserOptions {
       _defaultWeight(1),
       _weightAttribute("") {}
 
-  ShortestPathOptions(arangodb::aql::Query*, arangodb::velocypack::Slice,
-                      arangodb::velocypack::Slice);
+  ShortestPathOptions(arangodb::aql::Query*, arangodb::velocypack::Slice info,
+                      arangodb::velocypack::Slice collections,
+                      arangodb::velocypack::Slice reverseCollections);
 
   void setWeightAttribute(std::string const& attr) {
     _weightAttribute = attr;

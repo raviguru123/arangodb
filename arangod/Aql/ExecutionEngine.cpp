@@ -51,6 +51,27 @@
 using namespace arangodb;
 using namespace arangodb::aql;
 
+// Used in Mapping ServerID => Responsible Shards
+struct TraversalInfoMapping {
+  // All forward computed edge shards
+  std::vector<std::vector<ShardID>> forwardEdgeShards;
+  // All backward computed edge shards (only ShortestPath)
+  std::vector<std::vector<ShardID>> backwardEdgeShards;
+  // All shards for vertices
+  std::unordered_map<std::string, std::vector<ShardID>> vertexShards;
+
+  TraversalInfoMapping() = delete;
+  TraversalInfoMapping(size_t length) {
+    // We always know the exact size of the shards.
+    // Furthermore the lengths of the vectors have to
+    // be correct, as accessed is based on indexes.
+    forwardEdgeShards.resize(length);
+    backwardEdgeShards.resize(length);
+  }
+
+  ~TraversalInfoMapping() {}
+};
+
 /// @brief helper function to create a block
 static ExecutionBlock* CreateBlock(
     ExecutionEngine* engine, ExecutionNode const* en,
@@ -830,10 +851,7 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
     // For edgeCollections the Ordering is important for the index access.
     // Also the same edgeCollection can be included twice (iff direction is ANY)
     auto clusterInfo = arangodb::ClusterInfo::instance();
-    std::unordered_map<
-        ServerID,
-        std::pair<std::vector<std::vector<ShardID>>,
-                  std::unordered_map<std::string, std::vector<ShardID>>>>
+    std::unordered_map<ServerID, TraversalInfoMapping>
         mappingServerToCollections;
     auto servers = clusterInfo->getCurrentDBServers();
     size_t length = edges.size();
@@ -844,18 +862,17 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
     for (auto s : servers) {
       // We insert at lease an empty vector for every edge collection
       // Used in the traverser.
-      auto& info = mappingServerToCollections[s];
-      // We need to exactly maintain the ordering.
-      // A server my be responsible for a shard in edge collection 1 but not 0 or 2.
-      info.first.resize(length);
+      mappingServerToCollections.emplace(s, length);
     }
+
     for (size_t i = 0; i < length; ++i) {
       auto shardIds = edges[i]->shardIds();
       for (auto const& shard : *shardIds) {
         auto serverList = clusterInfo->getResponsibleServer(shard);
         TRI_ASSERT(!serverList->empty());
-        auto& pair = mappingServerToCollections[(*serverList)[0]];
-        pair.first[i].emplace_back(shard);
+        auto map = mappingServerToCollections.find((*serverList)[0]);
+        TRI_ASSERT(map != mappingServerToCollections.end());
+        map->second.forwardEdgeShards[i].emplace_back(shard);
       }
     }
 
@@ -871,8 +888,8 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
       auto cs = query->collections()->collections();
       for (auto const& collection : (*cs)) {
         for (auto& entry : mappingServerToCollections) {
-          entry.second.second.emplace(collection.second->getName(),
-                                      std::vector<ShardID>());
+          entry.second.vertexShards.emplace(collection.second->getName(),
+                                            std::vector<ShardID>());
         }
         if (knownEdges.find(collection.second->getName()) == knownEdges.end()) {
           // This collection is not one of the edge collections used in this
@@ -881,8 +898,9 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
           for (auto const& shard : *shardIds) {
             auto serverList = clusterInfo->getResponsibleServer(shard);
             TRI_ASSERT(!serverList->empty());
-            auto& pair = mappingServerToCollections[(*serverList)[0]];
-            pair.second[collection.second->getName()].emplace_back(shard);
+            auto map = mappingServerToCollections.find((*serverList)[0]);
+            TRI_ASSERT(map != mappingServerToCollections.end());
+            map->second.vertexShards[collection.second->getName()].emplace_back(shard);
           }
         }
       }
@@ -890,15 +908,15 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
       // This Traversal is started with a GRAPH. It knows all relevant collections.
       for (auto const& it : vertices) {
         for (auto& entry : mappingServerToCollections) {
-          entry.second.second.emplace(it->getName(),
-                                      std::vector<ShardID>());
+          entry.second.vertexShards.emplace(it->getName(),
+                                            std::vector<ShardID>());
         }
         auto shardIds = it->shardIds();
         for (auto const& shard : *shardIds) {
           auto serverList = clusterInfo->getResponsibleServer(shard);
           TRI_ASSERT(!serverList->empty());
-          auto& pair = mappingServerToCollections[(*serverList)[0]];
-          pair.second[it->getName()].emplace_back(shard);
+          auto map = mappingServerToCollections.find((*serverList)[0]);
+          map->second.vertexShards[it->getName()].emplace_back(shard);
         }
       }
     }
@@ -960,7 +978,7 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
       engineInfo.openObject();
       engineInfo.add(VPackValue("vertices"));
       engineInfo.openObject();
-      for (auto const& col : list.second.second) {
+      for (auto const& col : list.second.vertexShards) {
         engineInfo.add(VPackValue(col.first));
         engineInfo.openArray();
         for (auto const& v : col.second) {
@@ -973,7 +991,7 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
 
       engineInfo.add(VPackValue("edges"));
       engineInfo.openArray();
-      for (auto const& edgeShards : list.second.first) {
+      for (auto const& edgeShards : list.second.forwardEdgeShards) {
         engineInfo.openArray();
         for (auto const& e : edgeShards) {
           shardSet.emplace(e);
@@ -982,6 +1000,19 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
         engineInfo.close();
       }
       engineInfo.close(); // edges
+
+      engineInfo.add(VPackValue("reverseEdges"));
+
+      engineInfo.openArray();
+      for (auto const& edgeShards : list.second.backwardEdgeShards) {
+        engineInfo.openArray();
+        for (auto const& e : edgeShards) {
+          shardSet.emplace(e);
+          engineInfo.add(VPackValue(e));
+        }
+        engineInfo.close();
+      }
+      engineInfo.close(); // reverseEdges
 
       engineInfo.close(); // shards
 
