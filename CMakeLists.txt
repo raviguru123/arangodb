@@ -62,6 +62,11 @@ if (USE_ENTERPRISE)
   add_subdirectory(enterprise)
 endif ()
 
+option(DEBUG_SYNC_REPLICATION OFF "Enable debug code to enable synchronous replication debugging")
+if (DEBUG_SYNC_REPLICATION)
+  add_definitions("-DDEBUG_SYNC_REPLICATION=1")
+endif ()
+
 ################################################################################
 ## ARANGODB
 ################################################################################
@@ -733,6 +738,7 @@ endif ()
 # ZLIB_INCLUDE_DIR
 add_definitions(-DBOOST_ALL_NO_LIB=1) #disable boost autolink on windows
 add_subdirectory(3rdParty)
+add_definitions("-DARANGODB_BOOST_VERSION=\"1.62.0\"")
 
 ################################################################################
 ## VELOCYPACK
@@ -785,7 +791,7 @@ endif ()
 ################################################################################
 
 include_directories(${V8_INCLUDE_DIR})
-add_definitions("-DARANGODB_V8_VERSION=\"${V8_VERSION}\"")
+add_definitions("-DARANGODB_V8_VERSION=\"1.62.0\"")
 
 ################################################################################
 ## ZLIB
