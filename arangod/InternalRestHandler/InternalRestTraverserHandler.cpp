@@ -248,7 +248,7 @@ void InternalRestTraverserHandler::queryEngine() {
 #ifndef USE_ENTERPRISE
 void InternalRestTraverserHandler::enterpriseSmartSearch(
     std::string const& option, traverser::BaseTraverserEngine* engine,
-    VPackSlice body, VPackBuider& result) {
+    VPackSlice body, VPackBuilder& result) {
   if (option == "smartSearch" || option == "smartSearchBFS" || "smartShortestPath") {
     THROW_ARANGO_EXCEPTION(TRI_ERROR_ONLY_ENTERPRISE);
   } else {
