@@ -404,24 +404,24 @@ ShortestPathBlock::ShortestPathBlock(ExecutionEngine* engine,
   if (arangodb::ServerState::instance()->isCoordinator()) {
     _engines = ep->engines();
 
-    if (_opts->usesWeight()) {
-      _finder.reset(new ArangoDBPathFinder(
-          EdgeWeightExpanderCluster(this, false),
-          EdgeWeightExpanderCluster(this, true), true));
-    } else {
 #ifdef USE_ENTERPRISE
-      if (ep->isSmart()) {
-        _finder.reset(new SmartGraphConstDistanceFinder(
-            _opts, _engines, engine->getQuery()->trx()->resolver()));
-      } else {
+    if (ep->isSmart()) {
+      _finder.reset(new SmartGraphConstDistanceFinder(
+          _opts, _engines, engine->getQuery()->trx()->resolver()));
+    } else {
 #endif
+      if (_opts->usesWeight()) {
+        _finder.reset(new ArangoDBPathFinder(
+            EdgeWeightExpanderCluster(this, false),
+            EdgeWeightExpanderCluster(this, true), true));
+      } else {
         _finder.reset(new ArangoDBConstDistancePathFinder(
             ConstDistanceExpanderCluster(this, false),
             ConstDistanceExpanderCluster(this, true)));
+      }
 #ifdef USE_ENTERPRISE
     }
 #endif
-    }
   } else {
     if (_opts->usesWeight()) {
       _finder.reset(new ArangoDBPathFinder(
