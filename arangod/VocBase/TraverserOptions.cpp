@@ -809,6 +809,15 @@ ShortestPathOptions::ShortestPathOptions(arangodb::aql::Query* query,
     _reverseLookupInfos.emplace_back(query, read.at(j), reverseCollections.at(j));
   }
 
+  read = info.get("weightAttribute");
+  if (read.isString()) {
+    _weightAttribute = read.copyString();
+
+    read = info.get("defaultWeight");
+    if (read.isNumber()) {
+      _defaultWeight = read.getNumericValue<double>();
+    }
+  }
 }
 
 void ShortestPathOptions::toVelocyPack(VPackBuilder& builder) const {
@@ -826,6 +835,10 @@ void ShortestPathOptions::buildEngineInfo(VPackBuilder& result) const {
     it.buildEngineInfo(result);
   }
   result.close();
+  if (usesWeight()) {
+    result.add("weightAttribute", VPackValue(weightAttribute()));
+    result.add("defaultWeight", VPackValue(defaultWeight()));
+  }
   result.add("type", VPackValue("shortest"));
 }
 

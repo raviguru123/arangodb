@@ -263,15 +263,15 @@ struct ShortestPathOptions : public BaseTraverserOptions {
     _defaultWeight = weight;
   }
 
-  bool usesWeight() {
+  bool usesWeight() const {
     return !_weightAttribute.empty();
   }
 
-  std::string const weightAttribute() {
+  std::string const weightAttribute() const {
     return _weightAttribute;
   }
 
-  double defaultWeight() {
+  double defaultWeight() const {
     return _defaultWeight;
   }
 
