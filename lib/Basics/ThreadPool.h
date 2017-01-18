@@ -35,6 +35,16 @@ namespace basics {
 
 class WorkerThread;
 
+class AuxiliaryTask {
+ public:
+  AuxiliaryTask(std::function<void()> worker);
+
+  void operator()();
+
+ private:
+  std::function<void()> _worker;
+};
+
 class ThreadPool {
  public:
   ThreadPool(ThreadPool const&) = delete;

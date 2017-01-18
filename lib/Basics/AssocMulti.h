@@ -29,10 +29,12 @@
 // Activate for additional debugging:
 // #define TRI_CHECK_MULTI_POINTER_HASH 1
 
+#include "Basics/Barrier.h"
 #include "Basics/Common.h"
 #include "Basics/IndexBucket.h"
 #include "Basics/Mutex.h"
 #include "Basics/MutexLocker.h"
+#include "Basics/ThreadPool.h"
 #include "Basics/prime-numbers.h"
 #include "Logger/Logger.h"
 
@@ -324,10 +326,15 @@ class AssocMulti {
 
   int batchInsert(std::function<void*()> const& contextCreator,
                   std::function<void(void*)> const& contextDestroyer,
-                  std::vector<Element> const* data, size_t numThreads) {
+                  std::vector<Element> const* data, size_t numThreads,
+                  arangodb::basics::ThreadPool* indexPool) {
     if (data->empty()) {
       // nothing to do
       return TRI_ERROR_NO_ERROR;
+    }
+
+    if (indexPool == nullptr) {
+      throw;
     }
 
     std::atomic<int> res(TRI_ERROR_NO_ERROR);
@@ -354,102 +361,109 @@ class AssocMulti {
       bucketFlags[i] = 0;
     }
 
+    std::vector<arangodb::basics::AuxiliaryTask> inserters;
+    inserters.reserve(_bucketsMask + 1);
+
     std::vector<std::vector<DocumentsPerBucket>> allBuckets;
     allBuckets.resize(_bucketsMask + 1);  // initialize to number of buckets
 
-    // partition the work into some buckets
     {
-      std::function<void(size_t, size_t, void*)> partitioner;
-      partitioner = [&](size_t lower, size_t upper, void* userData) -> void {
-        try {
-          std::vector<DocumentsPerBucket> partitions;
-          partitions.resize(_bucketsMask +
-                            1);  // initialize to number of buckets
+      arangodb::basics::Barrier barrier(numThreads + allBuckets.size());
 
-          for (size_t i = lower; i < upper; ++i) {
-            uint64_t hashByKey = _hashElement(userData, elements[i], true);
-            auto bucketId = hashByKey & _bucketsMask;
+      // partition the work into some buckets
+      std::function<std::function<void()>(size_t, size_t, void*)> partitioner;
+      partitioner = [&](size_t lower, size_t upper,
+                        void* userData) -> std::function<void()> {
+        auto fn = [&, lower, upper, userData]() -> void {
+          try {
+            std::vector<DocumentsPerBucket> partitions;
+            partitions.resize(_bucketsMask +
+                              1);  // initialize to number of buckets
 
-            partitions[bucketId].emplace_back(elements[i], hashByKey);
-          }
+            for (size_t i = lower; i < upper; ++i) {
+              uint64_t hashByKey = _hashElement(userData, elements[i], true);
+              auto bucketId = hashByKey & _bucketsMask;
 
-          // transfer ownership to the central map
-          for (size_t i = 0; i < partitions.size(); ++i) {
-            MUTEX_LOCKER(mutexLocker, bucketMapLocker[i]);
-            allBuckets[i].emplace_back(std::move(partitions[i]));
-            bucketFlags[i]++;
-          }
-        } catch (...) {
-          res = TRI_ERROR_INTERNAL;
-        }
-
-        contextDestroyer(userData);
-      };
-
-      // sort vectors in vectors so that we have a deterministics insertion
-      // order
-      auto sorter = [&](size_t i) -> void {
-        // wait for bucket to be fully partitioned
-        while (bucketFlags[i].load() < numThreads) {
-          if (res.load() != TRI_ERROR_NO_ERROR) {
-            return;
-          }
-          usleep(10);
-        }
-        std::sort(allBuckets[i].begin(), allBuckets[i].end(),
-                  [](DocumentsPerBucket const& lhs,
-                     DocumentsPerBucket const& rhs) -> bool {
-                    if (lhs.empty() && rhs.empty()) {
-                      return false;
-                    }
-                    if (lhs.empty() && !rhs.empty()) {
-                      return true;
-                    }
-                    if (rhs.empty() && !lhs.empty()) {
-                      return false;
-                    }
-
-                    return lhs[0].first < rhs[0].first;
-                  });
-        bucketFlags[i]++;
-      };
-
-      auto inserter = [&](size_t chunk, void* userData) -> void {
-        while (bucketFlags[chunk].load() < (numThreads + 1)) {
-          if (res.load() != TRI_ERROR_NO_ERROR) {
-            return;
-          }
-          usleep(10);
-        }
-        try {
-          for (size_t i = 0; i < allBuckets.size(); ++i) {
-            uint64_t bucketId = i;
-
-            if (bucketId % numThreads != chunk) {
-              // we're not responsible for this bucket!
-              continue;
+              partitions[bucketId].emplace_back(elements[i], hashByKey);
             }
 
-            // we're responsible for this bucket!
-            Bucket& b = _buckets[static_cast<size_t>(bucketId)];
+            // transfer ownership to the central map
+            for (size_t i = 0; i < partitions.size(); ++i) {
+              MUTEX_LOCKER(mutexLocker, bucketMapLocker[i]);
+              allBuckets[i].emplace_back(std::move(partitions[i]));
+              bucketFlags[i]++;
+              if (bucketFlags[i] == numThreads) {
+                // queue inserter for bucket i
+                try {
+                  indexPool->enqueue(inserters[i]);
+                } catch (...) {
+                  barrier.join();
+                }
+              }
+            }
+          } catch (...) {
+            res = TRI_ERROR_INTERNAL;
+          }
+
+          contextDestroyer(userData);
+          barrier.join();
+        };
+
+        return fn;
+      };
+
+      // insert pre-partitioned document chunks
+      std::function<std::function<void()>(size_t, void*)> inserter;
+      inserter = [&](size_t i, void* userData) -> std::function<void()> {
+        // sort vectors in vectors so that we have a deterministics insertion
+        // order
+        auto fn = [&, i, userData]() -> void {
+          std::sort(allBuckets[i].begin(), allBuckets[i].end(),
+                    [](DocumentsPerBucket const& lhs,
+                       DocumentsPerBucket const& rhs) -> bool {
+                      if (lhs.empty() && rhs.empty()) {
+                        return false;
+                      }
+                      if (lhs.empty() && !rhs.empty()) {
+                        return true;
+                      }
+                      if (rhs.empty() && !lhs.empty()) {
+                        return false;
+                      }
+
+                      return lhs[0].first < rhs[0].first;
+                    });
+          // now actually insert them
+          try {
+            Bucket& b = _buckets[static_cast<size_t>(i)];
 
             for (auto const& it : allBuckets[i]) {
               for (auto const& it2 : it) {
                 doInsert(userData, it2.first, it2.second, b, true, false);
               }
             }
+          } catch (...) {
+            res = TRI_ERROR_INTERNAL;
           }
-        } catch (...) {
-          res = TRI_ERROR_INTERNAL;
-        }
 
-        contextDestroyer(userData);
+          contextDestroyer(userData);
+          barrier.join();
+        };
+
+        return fn;
       };
 
-      std::vector<std::thread> threads;
-      threads.reserve(3 * numThreads);
-
       try {
+        for (size_t i = 0; i < allBuckets.size(); i++) {
+          try {
+            std::function<void()> worker = inserter(i, contextCreator());
+            arangodb::basics::AuxiliaryTask task(worker);
+            inserters.emplace_back(task);
+          } catch (...) {
+            res = TRI_ERROR_INTERNAL;
+            barrier.join();
+          }
+        }
         for (size_t i = 0; i < numThreads; ++i) {
           size_t lower = i * chunkSize;
           size_t upper = (i + 1) * chunkSize;
@@ -461,19 +475,21 @@ class AssocMulti {
             upper = elements.size();
           }
 
-          threads.emplace_back(
-              std::thread(partitioner, lower, upper, contextCreator()));
-          threads.emplace_back(std::thread(sorter, i));
-          threads.emplace_back(std::thread(inserter, i, contextCreator()));
+          try {
+            std::function<void()> worker =
+                partitioner(lower, upper, contextCreator());
+            arangodb::basics::AuxiliaryTask task(worker);
+            indexPool->enqueue(task);
+          } catch (...) {
+            res = TRI_ERROR_INTERNAL;
+            barrier.join();
+          }
         }
       } catch (...) {
         res = TRI_ERROR_INTERNAL;
       }
 
-      for (size_t i = 0; i < threads.size(); ++i) {
-        // must join threads, otherwise the program will crash
-        threads[i].join();
-      }
+      // barrier waits here until all threads have joined
     }
 
 #ifdef TRI_CHECK_MULTI_POINTER_HASH
@@ -1003,7 +1019,8 @@ class AssocMulti {
   }
 
   //////////////////////////////////////////////////////////////////////////////
-  /// @brief removes an element from the array, caller is responsible to free it
+  /// @brief removes an element from the array, caller is responsible to free
+  /// it
   //////////////////////////////////////////////////////////////////////////////
 
   Element remove(UserData* userData, Element const& element) {

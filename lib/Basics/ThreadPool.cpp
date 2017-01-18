@@ -27,6 +27,10 @@
 
 using namespace arangodb::basics;
 
+AuxiliaryTask::AuxiliaryTask(std::function<void()> worker) : _worker(worker) {}
+
+void AuxiliaryTask::operator()() { _worker(); }
+
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief create a pool with the specified size of worker threads
 ////////////////////////////////////////////////////////////////////////////////

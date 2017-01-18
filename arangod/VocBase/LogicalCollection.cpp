@@ -1038,7 +1038,7 @@ void LogicalCollection::drop() {
   if (_revisionsCache != nullptr) {
     _revisionsCache->clear();
   }
-  
+
   // make sure collection has been closed
   this->close();
 
@@ -1323,8 +1323,9 @@ void LogicalCollection::open(bool ignoreErrors) {
 
   if (res != TRI_ERROR_NO_ERROR) {
     THROW_ARANGO_EXCEPTION_MESSAGE(
-        res, std::string("cannot open document collection from path '") +
-                 path() + "': " + TRI_errno_string(res));
+        res,
+        std::string("cannot open document collection from path '") + path() +
+            "': " + TRI_errno_string(res));
   }
 
   arangodb::SingleCollectionTransaction trx(
@@ -1351,8 +1352,9 @@ void LogicalCollection::open(bool ignoreErrors) {
 
   if (res != TRI_ERROR_NO_ERROR) {
     THROW_ARANGO_EXCEPTION_MESSAGE(
-        res, std::string("cannot iterate data of document collection: ") +
-                 TRI_errno_string(res));
+        res,
+        std::string("cannot iterate data of document collection: ") +
+            TRI_errno_string(res));
   }
 
   _isInitialIteration = false;
@@ -1542,7 +1544,8 @@ std::shared_ptr<Index> LogicalCollection::createIndex(Transaction* trx,
     VPackBuilder builder;
     bool const doSync =
         application_features::ApplicationServer::getFeature<DatabaseFeature>(
-            "Database")->forceSyncProperties();
+            "Database")
+            ->forceSyncProperties();
     toVelocyPack(builder, false);
     update(builder.slice(), doSync);
   }
@@ -1612,8 +1615,7 @@ int LogicalCollection::saveIndex(arangodb::Index* idx, bool writeMarker) {
 
   try {
     MMFilesCollectionMarker marker(TRI_DF_MARKER_VPACK_CREATE_INDEX,
-                                           _vocbase->id(), cid(),
-                                           builder->slice());
+                                   _vocbase->id(), cid(), builder->slice());
 
     MMFilesWalSlotInfoCopy slotInfo =
         arangodb::wal::LogfileManager::instance()->allocateAndWrite(marker,
@@ -1691,7 +1693,8 @@ bool LogicalCollection::dropIndex(TRI_idx_iid_t iid, bool writeMarker) {
     VPackBuilder builder;
     bool const doSync =
         application_features::ApplicationServer::getFeature<DatabaseFeature>(
-            "Database")->forceSyncProperties();
+            "Database")
+            ->forceSyncProperties();
     toVelocyPack(builder, false);
     update(builder.slice(), doSync);
   }
@@ -1706,8 +1709,8 @@ bool LogicalCollection::dropIndex(TRI_idx_iid_t iid, bool writeMarker) {
       markerBuilder.close();
 
       MMFilesCollectionMarker marker(TRI_DF_MARKER_VPACK_DROP_INDEX,
-                                             _vocbase->id(), cid(),
-                                             markerBuilder.slice());
+                                     _vocbase->id(), cid(),
+                                     markerBuilder.slice());
 
       MMFilesWalSlotInfoCopy slotInfo =
           arangodb::wal::LogfileManager::instance()->allocateAndWrite(marker,
@@ -1896,7 +1899,7 @@ void LogicalCollection::addIndex(std::shared_ptr<arangodb::Index> idx) {
   TRI_ASSERT(idx->type() != arangodb::Index::TRI_IDX_TYPE_PRIMARY_INDEX ||
              _indexes.empty());
 
-  auto const id = idx->id();      
+  auto const id = idx->id();
   for (auto const& it : _indexes) {
     if (it->id() == id) {
       // already have this particular index. do not add it again
@@ -1919,8 +1922,7 @@ void LogicalCollection::addIndex(std::shared_ptr<arangodb::Index> idx) {
 
 void LogicalCollection::addIndexCoordinator(
     std::shared_ptr<arangodb::Index> idx, bool distribute) {
-  
-  auto const id = idx->id();      
+  auto const id = idx->id();
   for (auto const& it : _indexes) {
     if (it->id() == id) {
       // already have this particular index. do not add it again
@@ -2063,9 +2065,9 @@ int LogicalCollection::insert(Transaction* trx, VPackSlice const slice,
   }
 
   // create marker
-  MMFilesCrudMarker insertMarker(
-      TRI_DF_MARKER_VPACK_DOCUMENT,
-      TRI_MarkerIdTransaction(trx->getInternals()), newSlice);
+  MMFilesCrudMarker insertMarker(TRI_DF_MARKER_VPACK_DOCUMENT,
+                                 TRI_MarkerIdTransaction(trx->getInternals()),
+                                 newSlice);
 
   MMFilesWalMarker const* marker;
   if (options.recoveryMarker == nullptr) {
@@ -2080,8 +2082,7 @@ int LogicalCollection::insert(Transaction* trx, VPackSlice const slice,
     return TRI_ERROR_DEBUG;
   }
 
-  MMFilesDocumentOperation operation(this,
-                                             TRI_VOC_DOCUMENT_OPERATION_INSERT);
+  MMFilesDocumentOperation operation(this, TRI_VOC_DOCUMENT_OPERATION_INSERT);
 
   TRI_IF_FAILURE("InsertDocumentNoHeader") {
     // test what happens if no header can be acquired
@@ -2114,13 +2115,13 @@ int LogicalCollection::insert(Transaction* trx, VPackSlice const slice,
     bool const useDeadlockDetector =
         (lock && !trx->isSingleOperationTransaction());
     try {
-      arangodb::CollectionWriteLocker collectionLocker(this, useDeadlockDetector,
-                                                      lock);
+      arangodb::CollectionWriteLocker collectionLocker(
+          this, useDeadlockDetector, lock);
 
       try {
         // insert into indexes
         res = insertDocument(trx, revisionId, doc, operation, marker,
-                            options.waitForSync);
+                             options.waitForSync);
       } catch (basics::Exception const& ex) {
         res = ex.code();
       } catch (std::bad_alloc const&) {
@@ -2131,7 +2132,7 @@ int LogicalCollection::insert(Transaction* trx, VPackSlice const slice,
     } catch (...) {
       // the collectionLocker may have thrown in its constructor...
       // if it did, then we need to manually remove the revision id
-      // from the list of revisions 
+      // from the list of revisions
       try {
         removeRevision(revisionId, false);
       } catch (...) {
@@ -2149,7 +2150,7 @@ int LogicalCollection::insert(Transaction* trx, VPackSlice const slice,
 
     // store the tick that was used for writing the document
     resultMarkerTick = operation.tick();
-  } 
+  }
 
   return res;
 }
@@ -2260,9 +2261,9 @@ int LogicalCollection::update(Transaction* trx, VPackSlice const newSlice,
   }
 
   // create marker
-  MMFilesCrudMarker updateMarker(
-      TRI_DF_MARKER_VPACK_DOCUMENT,
-      TRI_MarkerIdTransaction(trx->getInternals()), builder->slice());
+  MMFilesCrudMarker updateMarker(TRI_DF_MARKER_VPACK_DOCUMENT,
+                                 TRI_MarkerIdTransaction(trx->getInternals()),
+                                 builder->slice());
 
   MMFilesWalMarker const* marker;
   if (options.recoveryMarker == nullptr) {
@@ -2273,8 +2274,7 @@ int LogicalCollection::update(Transaction* trx, VPackSlice const newSlice,
 
   VPackSlice const newDoc(marker->vpack());
 
-  MMFilesDocumentOperation operation(this,
-                                             TRI_VOC_DOCUMENT_OPERATION_UPDATE);
+  MMFilesDocumentOperation operation(this, TRI_VOC_DOCUMENT_OPERATION_UPDATE);
 
   try {
     insertRevision(revisionId, marker->vpack(), 0, true);
@@ -2417,9 +2417,9 @@ int LogicalCollection::replace(Transaction* trx, VPackSlice const newSlice,
   }
 
   // create marker
-  MMFilesCrudMarker replaceMarker(
-      TRI_DF_MARKER_VPACK_DOCUMENT,
-      TRI_MarkerIdTransaction(trx->getInternals()), builder->slice());
+  MMFilesCrudMarker replaceMarker(TRI_DF_MARKER_VPACK_DOCUMENT,
+                                  TRI_MarkerIdTransaction(trx->getInternals()),
+                                  builder->slice());
 
   MMFilesWalMarker const* marker;
   if (options.recoveryMarker == nullptr) {
@@ -2430,8 +2430,7 @@ int LogicalCollection::replace(Transaction* trx, VPackSlice const newSlice,
 
   VPackSlice const newDoc(marker->vpack());
 
-  MMFilesDocumentOperation operation(
-      this, TRI_VOC_DOCUMENT_OPERATION_REPLACE);
+  MMFilesDocumentOperation operation(this, TRI_VOC_DOCUMENT_OPERATION_REPLACE);
 
   try {
     insertRevision(revisionId, marker->vpack(), 0, true);
@@ -2506,9 +2505,9 @@ int LogicalCollection::remove(arangodb::Transaction* trx,
   }
 
   // create marker
-  MMFilesCrudMarker removeMarker(
-      TRI_DF_MARKER_VPACK_REMOVE, TRI_MarkerIdTransaction(trx->getInternals()),
-      builder->slice());
+  MMFilesCrudMarker removeMarker(TRI_DF_MARKER_VPACK_REMOVE,
+                                 TRI_MarkerIdTransaction(trx->getInternals()),
+                                 builder->slice());
 
   MMFilesWalMarker const* marker;
   if (options.recoveryMarker == nullptr) {
@@ -2530,8 +2529,7 @@ int LogicalCollection::remove(arangodb::Transaction* trx,
   }
   TRI_ASSERT(!key.isNone());
 
-  MMFilesDocumentOperation operation(this,
-                                             TRI_VOC_DOCUMENT_OPERATION_REMOVE);
+  MMFilesDocumentOperation operation(this, TRI_VOC_DOCUMENT_OPERATION_REMOVE);
 
   bool const useDeadlockDetector =
       (lock && !trx->isSingleOperationTransaction());
@@ -2636,9 +2634,9 @@ int LogicalCollection::remove(arangodb::Transaction* trx,
   }
 
   // create marker
-  MMFilesCrudMarker removeMarker(
-      TRI_DF_MARKER_VPACK_REMOVE, TRI_MarkerIdTransaction(trx->getInternals()),
-      builder->slice());
+  MMFilesCrudMarker removeMarker(TRI_DF_MARKER_VPACK_REMOVE,
+                                 TRI_MarkerIdTransaction(trx->getInternals()),
+                                 builder->slice());
 
   MMFilesWalMarker const* marker = &removeMarker;
 
@@ -2650,8 +2648,7 @@ int LogicalCollection::remove(arangodb::Transaction* trx,
   VPackSlice key = Transaction::extractKeyFromDocument(oldDoc);
   TRI_ASSERT(!key.isNone());
 
-  MMFilesDocumentOperation operation(this,
-                                             TRI_VOC_DOCUMENT_OPERATION_REMOVE);
+  MMFilesDocumentOperation operation(this, TRI_VOC_DOCUMENT_OPERATION_REMOVE);
 
   bool const useDeadlockDetector =
       (lock && !trx->isSingleOperationTransaction());
@@ -3317,10 +3314,12 @@ int LogicalCollection::updateDocument(
 
 /// @brief insert a document, low level worker
 /// the caller must make sure the write lock on the collection is held
-int LogicalCollection::insertDocument(
-    arangodb::Transaction* trx, TRI_voc_rid_t revisionId, VPackSlice const& doc,
-    MMFilesDocumentOperation& operation,
-    MMFilesWalMarker const* marker, bool& waitForSync) {
+int LogicalCollection::insertDocument(arangodb::Transaction* trx,
+                                      TRI_voc_rid_t revisionId,
+                                      VPackSlice const& doc,
+                                      MMFilesDocumentOperation& operation,
+                                      MMFilesWalMarker const* marker,
+                                      bool& waitForSync) {
   // insert into primary index first
   int res = insertPrimaryIndex(trx, revisionId, doc);
 
