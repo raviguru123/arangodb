@@ -30,8 +30,9 @@
 #include "Basics/VelocyPackHelper.h"
 #include "Indexes/IndexLookupContext.h"
 #include "Indexes/SimpleAttributeEqualityMatcher.h"
+#include "Scheduler/Scheduler.h"
+#include "Scheduler/SchedulerFeature.h"
 #include "Utils/TransactionContext.h"
-#include "VocBase/IndexThreadFeature.h"
 #include "VocBase/LogicalCollection.h"
 #include "VocBase/transaction.h"
 
@@ -893,10 +894,11 @@ int HashIndex::batchInsertMulti(
   std::vector<HashIndexElement*> elements;
   elements.reserve(documents.size());
 
-  auto indexPool =
-      application_features::ApplicationServer::getFeature<IndexThreadFeature>(
-          "IndexThread")
-          ->getThreadPool();
+  /*  auto indexPool =
+        application_features::ApplicationServer::getFeature<IndexThreadFeature>(
+            "IndexThread")
+            ->getThreadPool();*/
+  auto ioService = SchedulerFeature::SCHEDULER->ioService();
 
   for (auto& doc : documents) {
     int res = fillElement<HashIndexElement>(elements, doc.first, doc.second);
@@ -928,7 +930,7 @@ int HashIndex::batchInsertMulti(
   };
 
   return _multiArray->_hashArray->batchInsert(creator, destroyer, &elements,
-                                              numThreads, indexPool);
+                                              numThreads, ioService);
 }
 
 int HashIndex::removeUniqueElement(arangodb::Transaction* trx,

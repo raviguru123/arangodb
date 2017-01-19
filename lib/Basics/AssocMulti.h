@@ -35,6 +35,7 @@
 #include "Basics/Mutex.h"
 #include "Basics/MutexLocker.h"
 #include "Basics/ThreadPool.h"
+#include "Basics/asio-helper.h"
 #include "Basics/prime-numbers.h"
 #include "Logger/Logger.h"
 
@@ -327,13 +328,13 @@ class AssocMulti {
   int batchInsert(std::function<void*()> const& contextCreator,
                   std::function<void(void*)> const& contextDestroyer,
                   std::vector<Element> const* data, size_t numThreads,
-                  arangodb::basics::ThreadPool* indexPool) {
+                  boost::asio::io_service* ioService) {
     if (data->empty()) {
       // nothing to do
       return TRI_ERROR_NO_ERROR;
     }
 
-    if (indexPool == nullptr) {
+    if (ioService == nullptr) {
       throw;
     }
 
@@ -361,7 +362,8 @@ class AssocMulti {
       bucketFlags[i] = 0;
     }
 
-    std::vector<arangodb::basics::AuxiliaryTask> inserters;
+    // std::vector<arangodb::basics::AuxiliaryTask> inserters;
+    std::vector<std::function<void()>> inserters;
     inserters.reserve(_bucketsMask + 1);
 
     std::vector<std::vector<DocumentsPerBucket>> allBuckets;
@@ -395,7 +397,8 @@ class AssocMulti {
               if (bucketFlags[i] == numThreads) {
                 // queue inserter for bucket i
                 try {
-                  indexPool->enqueue(inserters[i]);
+                  ioService->dispatch(inserters[i]);
+                  // indexPool->enqueue(inserters[i]);
                 } catch (...) {
                   barrier.join();
                 }
@@ -457,8 +460,8 @@ class AssocMulti {
         for (size_t i = 0; i < allBuckets.size(); i++) {
           try {
             std::function<void()> worker = inserter(i, contextCreator());
-            arangodb::basics::AuxiliaryTask task(worker);
-            inserters.emplace_back(task);
+            // arangodb::basics::AuxiliaryTask task(worker);
+            inserters.emplace_back(worker);
           } catch (...) {
             res = TRI_ERROR_INTERNAL;
             barrier.join();
@@ -478,8 +481,9 @@ class AssocMulti {
           try {
             std::function<void()> worker =
                 partitioner(lower, upper, contextCreator());
-            arangodb::basics::AuxiliaryTask task(worker);
-            indexPool->enqueue(task);
+            // arangodb::basics::AuxiliaryTask task(worker);
+            ioService->dispatch(worker);
+            // indexPool->enqueue(task);
           } catch (...) {
             res = TRI_ERROR_INTERNAL;
             barrier.join();

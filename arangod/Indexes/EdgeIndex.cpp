@@ -31,10 +31,11 @@
 #include "Basics/hashes.h"
 #include "Indexes/IndexLookupContext.h"
 #include "Indexes/SimpleAttributeEqualityMatcher.h"
+#include "Scheduler/Scheduler.h"
+#include "Scheduler/SchedulerFeature.h"
 #include "Utils/CollectionNameResolver.h"
 #include "Utils/Transaction.h"
 #include "Utils/TransactionContext.h"
-#include "VocBase/IndexThreadFeature.h"
 #include "VocBase/LogicalCollection.h"
 #include "VocBase/transaction.h"
 
@@ -528,10 +529,11 @@ int EdgeIndex::batchInsert(
     return TRI_ERROR_NO_ERROR;
   }
 
-  auto indexPool =
+  /*auto indexPool =
       application_features::ApplicationServer::getFeature<IndexThreadFeature>(
           "IndexThread")
-          ->getThreadPool();
+          ->getThreadPool();*/
+  auto ioService = SchedulerFeature::SCHEDULER->ioService();
 
   std::vector<SimpleIndexElement> elements;
   elements.reserve(documents.size());
@@ -556,7 +558,7 @@ int EdgeIndex::batchInsert(
   }
 
   int res = _edgesFrom->batchInsert(creator, destroyer, &elements, numThreads,
-                                    indexPool);
+                                    ioService);
 
   if (res != TRI_ERROR_NO_ERROR) {
     return res;
@@ -572,7 +574,7 @@ int EdgeIndex::batchInsert(
   }
 
   res = _edgesTo->batchInsert(creator, destroyer, &elements, numThreads,
-                              indexPool);
+                              ioService);
 
   if (res != TRI_ERROR_NO_ERROR) {
     return res;
