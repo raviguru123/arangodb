@@ -342,12 +342,14 @@ class AssocMulti {
 
     std::vector<Element> const& elements = *(data);
 
+    // override numThreads parameter to sensible default
+    numThreads = _buckets.size();
     if (elements.size() < numThreads) {
       numThreads = elements.size();
     }
-    if (numThreads > _buckets.size()) {
-      numThreads = _buckets.size();
-    }
+    // if (numThreads > _buckets.size()) {
+    //  numThreads = _buckets.size();
+    //}
 
     TRI_ASSERT(numThreads > 0);
 
