@@ -37,7 +37,7 @@ class WorkerThread;
 
 class AuxiliaryTask {
  public:
-  AuxiliaryTask(std::function<void()> worker);
+  explicit AuxiliaryTask(std::function<void()> worker);
 
   void operator()();
 
