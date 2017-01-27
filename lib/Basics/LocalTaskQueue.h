@@ -64,7 +64,7 @@ class LocalCallbackTask
   LocalCallbackTask(LocalCallbackTask const&) = delete;
   LocalCallbackTask& operator=(LocalCallbackTask const&) = delete;
 
-  explicit LocalCallbackTask(LocalTaskQueue* queue, std::function<void()> cb);
+  LocalCallbackTask(LocalTaskQueue* queue, std::function<void()> cb);
   virtual ~LocalCallbackTask() {}
 
   virtual void run();
