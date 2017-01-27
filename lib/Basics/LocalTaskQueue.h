@@ -44,6 +44,7 @@ class LocalTask : public std::enable_shared_from_this<LocalTask> {
   LocalTask& operator=(LocalTask const&) = delete;
 
   explicit LocalTask(LocalTaskQueue* queue);
+  virtual ~LocalTask() {}
 
   virtual void run() = 0;
   void dispatch();
@@ -64,6 +65,7 @@ class LocalCallbackTask
   LocalCallbackTask& operator=(LocalCallbackTask const&) = delete;
 
   explicit LocalCallbackTask(LocalTaskQueue* queue, std::function<void()> cb);
+  virtual ~LocalCallbackTask() {}
 
   virtual void run();
   void dispatch();
