@@ -26,6 +26,7 @@
 
 #include "Aql/QueryCache.h"
 #include "Basics/Barrier.h"
+#include "Basics/LocalTaskQueue.h"
 #include "Basics/ReadLocker.h"
 #include "Basics/StaticStrings.h"
 #include "Basics/StringUtils.h"

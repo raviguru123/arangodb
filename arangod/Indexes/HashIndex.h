@@ -27,7 +27,6 @@
 #include "Basics/AssocMulti.h"
 #include "Basics/AssocUnique.h"
 #include "Basics/Common.h"
-#include "Basics/LocalTaskQueue.h"
 #include "Basics/VelocyPackHelper.h"
 #include "Basics/fasthash.h"
 #include "Indexes/IndexIterator.h"
@@ -42,6 +41,9 @@
 
 /// @brief hash index query parameter
 namespace arangodb {
+namespace basics {
+class LocalTaskQueue;
+}
 
 class HashIndex;
 

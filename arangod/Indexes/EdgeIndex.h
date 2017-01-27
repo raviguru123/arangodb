@@ -26,7 +26,6 @@
 
 #include "Basics/AssocMulti.h"
 #include "Basics/Common.h"
-#include "Basics/LocalTaskQueue.h"
 #include "Indexes/Index.h"
 #include "Indexes/IndexIterator.h"
 #include "VocBase/voc-types.h"
@@ -36,6 +35,10 @@
 #include <velocypack/Slice.h>
 
 namespace arangodb {
+namespace basics {
+class LocalTaskQueue;
+}
+
 class EdgeIndex;
 
 typedef arangodb::basics::AssocMulti<arangodb::velocypack::Slice,
