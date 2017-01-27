@@ -1,6 +1,10 @@
 devel
 -----
 
+* removed IndexThreadFeature, made --database.index-threads option obsolete
+
+* changed index filling to make it more parallel, dispatch tasks to boost::asio
+
 * added --replication-factor, --number-of-shards and --wait-for-sync to arangobench
 
 * turn on UTF-8 string validation for VelocyPack values received via VST connections
@@ -13,23 +17,23 @@ devel
   setting the flag to `true` will make the count operation returned the per-shard
   counts for the collection:
 
-      db._create("test", { numberOfShards: 10 }); 
-      for (i = 0; i < 1000; ++i) { 
-        db.test.insert({value: i}); 
+      db._create("test", { numberOfShards: 10 });
+      for (i = 0; i < 1000; ++i) {
+        db.test.insert({value: i});
       }
       db.test.count(true);
 
-      { 
-	"s100058" : 99, 
-	"s100057" : 103, 
-	"s100056" : 100, 
-	"s100050" : 94, 
-	"s100055" : 90, 
-	"s100054" : 122, 
-	"s100051" : 109, 
-	"s100059" : 99, 
-	"s100053" : 95, 
-	"s100052" : 89 
+      {
+	"s100058" : 99,
+	"s100057" : 103,
+	"s100056" : 100,
+	"s100050" : 94,
+	"s100055" : 90,
+	"s100054" : 122,
+	"s100051" : 109,
+	"s100059" : 99,
+	"s100053" : 95,
+	"s100052" : 89
       }
 
 * added optional memory limit for AQL queries:
@@ -155,7 +159,7 @@ v3.1.4 (2016-12-08)
 
 * agency RAFT timing estimates more conservative in waitForSync
   scenario
-  
+
 * agency RAFT timing estimates capped at maximum 2.0/10.0 for low/high
 
 
@@ -266,7 +270,7 @@ v3.1.1 (2016-11-15)
   produced an empty result
 
 * disallow updating `_from` and `_to` values of edges in Smart Graphs. Updating these
-  attributes would lead to potential redistribution of edges to other shards, which must be 
+  attributes would lead to potential redistribution of edges to other shards, which must be
   avoided.
 
 * fixed issue #2148
@@ -1154,7 +1158,7 @@ v2.8.12 (XXXX-XX-XX)
 v2.8.11 (2016-07-13)
 --------------------
 
-* fixed array index batch insertion issues for hash indexes that caused problems when 
+* fixed array index batch insertion issues for hash indexes that caused problems when
   no elements remained for insertion
 
 * fixed issue #1937
@@ -1596,9 +1600,9 @@ v2.8.0-beta7 (2016-01-06)
 * fixes for AQL optimizer and traversal
 
 * added `--create-collection-type` option to arangoimp
- 
-  This allows specifying the type of the collection to be created when 
-  `--create-collection` is set to `true`. 
+
+  This allows specifying the type of the collection to be created when
+  `--create-collection` is set to `true`.
 
 * Foxx export cache should no longer break if a broken app is loaded in the
   web admin interface.

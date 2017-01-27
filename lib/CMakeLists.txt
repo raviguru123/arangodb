@@ -145,7 +145,6 @@ add_library(${LIB_ARANGO} STATIC
   Basics/StringRef.cpp
   Basics/StringUtils.cpp
   Basics/Thread.cpp
-  Basics/ThreadPool.cpp
   Basics/Timers.cpp
   Basics/Utf8Helper.cpp
   Basics/VelocyPackDumper.cpp

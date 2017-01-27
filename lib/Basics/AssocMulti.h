@@ -37,7 +37,6 @@
 #include "Basics/LocalTaskQueue.h"
 #include "Basics/Mutex.h"
 #include "Basics/MutexLocker.h"
-#include "Basics/ThreadPool.h"
 #include "Basics/asio-helper.h"
 #include "Basics/prime-numbers.h"
 #include "Logger/Logger.h"
