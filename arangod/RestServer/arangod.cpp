@@ -112,9 +112,8 @@ static int runServer(int argc, char** argv) {
       "Cluster",       "Daemon",
       "Dispatcher",    "FoxxQueues",
       "GeneralServer", "LoggerBufferFeature",
-      "Server",        "Scheduler",
-      "SslServer",     "Statistics",
-      "Supervisor"};
+      "Server",        "SslServer",     
+      "Statistics",    "Supervisor"};
 
   int ret = EXIT_FAILURE;
 
