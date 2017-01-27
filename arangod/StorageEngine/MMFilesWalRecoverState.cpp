@@ -38,8 +38,6 @@
 #include "VocBase/LogicalCollection.h"
 #include "Wal/LogfileManager.h"
 
-#include <iostream>
-
 #include "Indexes/RocksDBFeature.h"
 
 #include <velocypack/Collection.h>

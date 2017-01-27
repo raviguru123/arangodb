@@ -31,13 +31,11 @@
 // #define TRI_CHECK_MULTI_POINTER_HASH 1
 
 #include "Basics/AssocMultiHelpers.h"
-#include "Basics/Barrier.h"
 #include "Basics/Common.h"
 #include "Basics/IndexBucket.h"
 #include "Basics/LocalTaskQueue.h"
 #include "Basics/Mutex.h"
 #include "Basics/MutexLocker.h"
-#include "Basics/asio-helper.h"
 #include "Basics/prime-numbers.h"
 #include "Logger/Logger.h"
 
@@ -300,6 +298,7 @@ class AssocMulti {
 
     std::vector<Element> const& elements = *(data.get());
 
+    // set the number of partitioners sensibly
     size_t numThreads = _buckets.size();
     if (elements.size() < numThreads) {
       numThreads = elements.size();
@@ -310,6 +309,8 @@ class AssocMulti {
     typedef std::vector<std::pair<Element, uint64_t>> DocumentsPerBucket;
     typedef MultiInserterTask<Element, IndexType, useHashCache> Inserter;
     typedef MultiPartitionerTask<Element, IndexType, useHashCache> Partitioner;
+
+    // allocate working space and coordination tools for tasks
 
     std::shared_ptr<std::vector<arangodb::Mutex>> bucketMapLocker;
     bucketMapLocker.reset(new std::vector<arangodb::Mutex>(_buckets.size()));
@@ -336,6 +337,7 @@ class AssocMulti {
     };
 
     try {
+      // create inserter tasks to be dispatched later by partitioners
       for (size_t i = 0; i < allBuckets->size(); i++) {
         std::shared_ptr<Inserter> worker;
         worker.reset(new Inserter(queue, contextDestroyer, &_buckets,
@@ -343,6 +345,7 @@ class AssocMulti {
                                   allBuckets));
         inserters->emplace_back(worker);
       }
+      // enqueue partitioner tasks
       for (size_t i = 0; i < numThreads; ++i) {
         size_t lower = i * chunkSize;
         size_t upper = (i + 1) * chunkSize;

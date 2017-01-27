@@ -79,7 +79,7 @@ class LocalCallbackTask
 
   //////////////////////////////////////////////////////////////////////////////
   /// @brief the callback executed by run() (any exceptions will be caught and
-  /// ignored; must not call queue->setStatus())
+  /// ignored; must not call queue->setStatus() or queue->enqueue())
   //////////////////////////////////////////////////////////////////////////////
 
   std::function<void()> _cb;
@@ -122,7 +122,8 @@ class LocalTaskQueue {
 
   //////////////////////////////////////////////////////////////////////////////
   /// @brief dispatch all tasks, including those that are queued while running,
-  /// and wait for all tasks to join
+  /// and wait for all tasks to join; then dispatch all callback tasks and wait
+  /// for them to join
   //////////////////////////////////////////////////////////////////////////////
 
   void dispatchAndWait();
@@ -153,7 +154,7 @@ class LocalTaskQueue {
   std::queue<std::shared_ptr<LocalTask>> _queue;
 
   //////////////////////////////////////////////////////////////////////////////
-  /// @brief internal task queue
+  /// @brief internal callback task queue
   //////////////////////////////////////////////////////////////////////////////
 
   std::queue<std::shared_ptr<LocalCallbackTask>> _callbackQueue;

@@ -32,18 +32,6 @@
 #include "Basics/LocalTaskQueue.h"
 #include "Basics/Mutex.h"
 #include "Basics/MutexLocker.h"
-#include "Basics/asio-helper.h"
-#include "Basics/prime-numbers.h"
-#include "Logger/Logger.h"
-
-#include <velocypack/Builder.h>
-#include <velocypack/velocypack-aliases.h>
-#include <iostream>
-#include <thread>
-
-#ifdef TRI_CHECK_MULTI_POINTER_HASH
-#include <iostream>
-#endif
 
 namespace arangodb {
 namespace basics {

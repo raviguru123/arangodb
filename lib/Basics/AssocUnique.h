@@ -577,6 +577,7 @@ class AssocUnique {
 
     std::vector<Element> const& elements = *(data.get());
 
+    // set number of partitioners sensibly
     size_t numThreads = _buckets.size();
     if (elements.size() < numThreads) {
       numThreads = elements.size();
@@ -587,6 +588,8 @@ class AssocUnique {
     typedef std::vector<std::pair<Element, uint64_t>> DocumentsPerBucket;
     typedef UniqueInserterTask<Element> Inserter;
     typedef UniquePartitionerTask<Element> Partitioner;
+
+    // allocate working space and coordination tools for tasks
 
     std::shared_ptr<std::vector<arangodb::Mutex>> bucketMapLocker;
     bucketMapLocker.reset(new std::vector<arangodb::Mutex>(_buckets.size()));
@@ -615,6 +618,7 @@ class AssocUnique {
     };
 
     try {
+      // generate inserter tasks to be dispatched later by partitioners
       for (size_t i = 0; i < allBuckets->size(); i++) {
         std::shared_ptr<Inserter> worker;
         worker.reset(new Inserter(queue, contextDestroyer, &_buckets,
@@ -622,6 +626,7 @@ class AssocUnique {
                                   contextCreator(), allBuckets));
         inserters->emplace_back(worker);
       }
+      // queue partitioner tasks
       for (size_t i = 0; i < numThreads; ++i) {
         size_t lower = i * chunkSize;
         size_t upper = (i + 1) * chunkSize;

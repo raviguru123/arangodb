@@ -24,9 +24,7 @@
 #include "LocalTaskQueue.h"
 #include "Basics/ConditionLocker.h"
 #include "Basics/MutexLocker.h"
-#include "Logger/Logger.h"
-
-#include <iostream>
+#include "Basics/asio-helper.h"
 
 using namespace arangodb::basics;
 
@@ -54,7 +52,7 @@ LocalCallbackTask::LocalCallbackTask(LocalTaskQueue* queue,
     : _queue(queue), _cb(cb) {}
 
 ////////////////////////////////////////////////////////////////////////////////
-/// @brief dispatch this task to the underlying io_service
+/// @brief run the callback and join
 ////////////////////////////////////////////////////////////////////////////////
 
 void LocalCallbackTask::run() {
@@ -75,8 +73,7 @@ void LocalCallbackTask::dispatch() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// @brief create a queue using the specified io_service with specified initial
-/// size
+/// @brief create a queue using the specified io_service
 ////////////////////////////////////////////////////////////////////////////////
 
 LocalTaskQueue::LocalTaskQueue(boost::asio::io_service* ioService)
@@ -135,7 +132,8 @@ void LocalTaskQueue::join() {
 
 //////////////////////////////////////////////////////////////////////////////
 /// @brief dispatch all tasks, including those that are queued while running,
-/// and wait for all tasks to join
+/// and wait for all tasks to join; then dispatch all callback tasks and wait
+/// for them to join
 //////////////////////////////////////////////////////////////////////////////
 
 void LocalTaskQueue::dispatchAndWait() {

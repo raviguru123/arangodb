@@ -29,18 +29,9 @@
 
 #include "Basics/Common.h"
 
-#include <velocypack/Builder.h>
-#include <velocypack/velocypack-aliases.h>
-#include <iostream>
-#include <thread>
-
 #include "Basics/IndexBucket.h"
 #include "Basics/LocalTaskQueue.h"
 #include "Basics/MutexLocker.h"
-#include "Basics/gcd.h"
-#include "Basics/prime-numbers.h"
-#include "Logger/Logger.h"
-#include "Random/RandomGenerator.h"
 
 namespace arangodb {
 namespace basics {
