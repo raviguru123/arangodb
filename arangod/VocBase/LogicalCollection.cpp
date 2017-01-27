@@ -1812,6 +1812,11 @@ int LogicalCollection::fillIndexes(
     arangodb::Transaction* trx,
     std::vector<std::shared_ptr<arangodb::Index>> const& indexes,
     bool skipPersistent) {
+  if (SchedulerFeature::SCHEDULER == nullptr) {
+    // no scheduler present. this means we're running in dfdb mode
+    return TRI_ERROR_NO_ERROR;
+  }
+  
   // distribute the work to index threads plus this thread
   TRI_ASSERT(!ServerState::instance()->isCoordinator());
   size_t const n = indexes.size();
@@ -1839,7 +1844,9 @@ int LogicalCollection::fillIndexes(
 
   double start = TRI_microtime();
 
+  TRI_ASSERT(SchedulerFeature::SCHEDULER != nullptr);
   auto ioService = SchedulerFeature::SCHEDULER->ioService();
+  TRI_ASSERT(ioService != nullptr);
   arangodb::basics::LocalTaskQueue queue(ioService);
 
   // only log performance infos for indexes with more than this number of
