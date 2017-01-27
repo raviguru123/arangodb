@@ -25,14 +25,13 @@
 #include "Aql/AstNode.h"
 #include "Aql/SortCondition.h"
 #include "Basics/Exceptions.h"
+#include "Basics/LocalTaskQueue.h"
 #include "Basics/StaticStrings.h"
 #include "Basics/StringRef.h"
 #include "Basics/fasthash.h"
 #include "Basics/hashes.h"
 #include "Indexes/IndexLookupContext.h"
 #include "Indexes/SimpleAttributeEqualityMatcher.h"
-#include "Scheduler/Scheduler.h"
-#include "Scheduler/SchedulerFeature.h"
 #include "Utils/CollectionNameResolver.h"
 #include "Utils/Transaction.h"
 #include "Utils/TransactionContext.h"
@@ -521,22 +520,21 @@ int EdgeIndex::remove(arangodb::Transaction* trx, TRI_voc_rid_t revisionId,
   }
 }
 
-int EdgeIndex::batchInsert(
+void EdgeIndex::batchInsert(
     arangodb::Transaction* trx,
     std::vector<std::pair<TRI_voc_rid_t, VPackSlice>> const& documents,
-    size_t numThreads) {
+    arangodb::basics::LocalTaskQueue* queue) {
   if (documents.empty()) {
-    return TRI_ERROR_NO_ERROR;
+    return;
   }
 
-  /*auto indexPool =
-      application_features::ApplicationServer::getFeature<IndexThreadFeature>(
-          "IndexThread")
-          ->getThreadPool();*/
-  auto ioService = SchedulerFeature::SCHEDULER->ioService();
+  std::shared_ptr<std::vector<SimpleIndexElement>> fromElements;
+  fromElements.reset(new std::vector<SimpleIndexElement>());
+  fromElements->reserve(documents.size());
 
-  std::vector<SimpleIndexElement> elements;
-  elements.reserve(documents.size());
+  std::shared_ptr<std::vector<SimpleIndexElement>> toElements;
+  toElements.reset(new std::vector<SimpleIndexElement>());
+  toElements->reserve(documents.size());
 
   // functions that will be called for each thread
   auto creator = [&trx, this]() -> void* {
@@ -549,38 +547,26 @@ int EdgeIndex::batchInsert(
     delete context;
   };
 
+  // TODO: create parallel tasks for this
+
   // _from
   for (auto const& it : documents) {
     VPackSlice value(Transaction::extractFromFromDocument(it.second));
-    elements.emplace_back(SimpleIndexElement(
+    fromElements->emplace_back(SimpleIndexElement(
         it.first, value,
         static_cast<uint32_t>(value.begin() - it.second.begin())));
-  }
-
-  int res = _edgesFrom->batchInsert(creator, destroyer, &elements, numThreads,
-                                    ioService);
-
-  if (res != TRI_ERROR_NO_ERROR) {
-    return res;
   }
 
   // _to
-  elements.clear();
   for (auto const& it : documents) {
     VPackSlice value(Transaction::extractToFromDocument(it.second));
-    elements.emplace_back(SimpleIndexElement(
+    toElements->emplace_back(SimpleIndexElement(
         it.first, value,
         static_cast<uint32_t>(value.begin() - it.second.begin())));
   }
 
-  res = _edgesTo->batchInsert(creator, destroyer, &elements, numThreads,
-                              ioService);
-
-  if (res != TRI_ERROR_NO_ERROR) {
-    return res;
-  }
-
-  return TRI_ERROR_NO_ERROR;
+  _edgesFrom->batchInsert(creator, destroyer, fromElements, queue);
+  _edgesTo->batchInsert(creator, destroyer, toElements, queue);
 }
 
 /// @brief unload the index data from memory

@@ -27,11 +27,10 @@
 #include "Aql/SortCondition.h"
 #include "Basics/Exceptions.h"
 #include "Basics/FixedSizeAllocator.h"
+#include "Basics/LocalTaskQueue.h"
 #include "Basics/VelocyPackHelper.h"
 #include "Indexes/IndexLookupContext.h"
 #include "Indexes/SimpleAttributeEqualityMatcher.h"
-#include "Scheduler/Scheduler.h"
-#include "Scheduler/SchedulerFeature.h"
 #include "Utils/TransactionContext.h"
 #include "VocBase/LogicalCollection.h"
 #include "VocBase/transaction.h"
@@ -664,15 +663,16 @@ int HashIndex::remove(arangodb::Transaction* trx, TRI_voc_rid_t revisionId,
   return res;
 }
 
-int HashIndex::batchInsert(
+void HashIndex::batchInsert(
     arangodb::Transaction* trx,
     std::vector<std::pair<TRI_voc_rid_t, VPackSlice>> const& documents,
-    size_t numThreads) {
+    arangodb::basics::LocalTaskQueue* queue) {
+  TRI_ASSERT(queue != nullptr);
   if (_unique) {
-    return batchInsertUnique(trx, documents, numThreads);
+    batchInsertUnique(trx, documents, queue);
+  } else {
+    batchInsertMulti(trx, documents, queue);
   }
-
-  return batchInsertMulti(trx, documents, numThreads);
 }
 
 int HashIndex::unload() {
@@ -778,28 +778,33 @@ int HashIndex::insertUnique(arangodb::Transaction* trx,
   return res;
 }
 
-int HashIndex::batchInsertUnique(
+void HashIndex::batchInsertUnique(
     arangodb::Transaction* trx,
     std::vector<std::pair<TRI_voc_rid_t, VPackSlice>> const& documents,
-    size_t numThreads) {
-  std::vector<HashIndexElement*> elements;
-  elements.reserve(documents.size());
+    arangodb::basics::LocalTaskQueue* queue) {
+  TRI_ASSERT(queue != nullptr);
+  std::shared_ptr<std::vector<HashIndexElement*>> elements;
+  elements.reset(new std::vector<HashIndexElement*>());
+  elements->reserve(documents.size());
 
+  // TODO: create parallel tasks for this
   for (auto& doc : documents) {
-    int res = fillElement<HashIndexElement>(elements, doc.first, doc.second);
+    int res =
+        fillElement<HashIndexElement>(*(elements.get()), doc.first, doc.second);
 
     if (res != TRI_ERROR_NO_ERROR) {
-      for (auto& it : elements) {
+      for (auto& it : *(elements.get())) {
         // free all elements to prevent leak
         _allocator->deallocate(it);
       }
-      return res;
+      queue->setStatus(res);
+      return;
     }
   }
 
-  if (elements.empty()) {
+  if (elements->empty()) {
     // no elements left to insert
-    return TRI_ERROR_NO_ERROR;
+    return;
   }
 
   // functions that will be called for each thread
@@ -813,17 +818,22 @@ int HashIndex::batchInsertUnique(
     delete context;
   };
 
-  int res = _uniqueArray->_hashArray->batchInsert(creator, destroyer, &elements,
-                                                  numThreads);
+  // queue the actual insertion tasks
+  _uniqueArray->_hashArray->batchInsert(creator, destroyer, elements, queue);
 
-  if (res != TRI_ERROR_NO_ERROR) {
-    for (auto& it : elements) {
-      // free all elements to prevent leak
-      _allocator->deallocate(it);
+  // queue cleanup callback
+  auto allocator = _allocator.get();
+  auto callback = [elements, queue, allocator]() -> void {
+    if (queue->status() != TRI_ERROR_NO_ERROR) {
+      for (auto& it : *(elements.get())) {
+        // free all elements to prevent leak
+        allocator->deallocate(it);
+      }
     }
-  }
-
-  return res;
+  };
+  std::shared_ptr<arangodb::basics::LocalCallbackTask> cbTask;
+  cbTask.reset(new arangodb::basics::LocalCallbackTask(queue, callback));
+  queue->enqueueCallback(cbTask);
 }
 
 int HashIndex::insertMulti(arangodb::Transaction* trx, TRI_voc_rid_t revisionId,
@@ -887,35 +897,33 @@ int HashIndex::insertMulti(arangodb::Transaction* trx, TRI_voc_rid_t revisionId,
   return TRI_ERROR_NO_ERROR;
 }
 
-int HashIndex::batchInsertMulti(
+void HashIndex::batchInsertMulti(
     arangodb::Transaction* trx,
     std::vector<std::pair<TRI_voc_rid_t, VPackSlice>> const& documents,
-    size_t numThreads) {
-  std::vector<HashIndexElement*> elements;
-  elements.reserve(documents.size());
+    arangodb::basics::LocalTaskQueue* queue) {
+  TRI_ASSERT(queue != nullptr);
+  std::shared_ptr<std::vector<HashIndexElement*>> elements;
+  elements.reset(new std::vector<HashIndexElement*>());
+  elements->reserve(documents.size());
 
-  /*  auto indexPool =
-        application_features::ApplicationServer::getFeature<IndexThreadFeature>(
-            "IndexThread")
-            ->getThreadPool();*/
-  auto ioService = SchedulerFeature::SCHEDULER->ioService();
-
+  // TODO: create parallel tasks for this
   for (auto& doc : documents) {
-    int res = fillElement<HashIndexElement>(elements, doc.first, doc.second);
+    int res =
+        fillElement<HashIndexElement>(*(elements.get()), doc.first, doc.second);
 
     if (res != TRI_ERROR_NO_ERROR) {
       // Filling the elements failed for some reason. Assume loading as failed
-      for (auto& el : elements) {
+      for (auto& el : *(elements.get())) {
         // Free all elements that are not yet in the index
         _allocator->deallocate(el);
       }
-      return res;
+      return;
     }
   }
 
-  if (elements.empty()) {
+  if (elements->empty()) {
     // no elements left to insert
-    return TRI_ERROR_NO_ERROR;
+    return;
   }
 
   // functions that will be called for each thread
@@ -929,8 +937,22 @@ int HashIndex::batchInsertMulti(
     delete context;
   };
 
-  return _multiArray->_hashArray->batchInsert(creator, destroyer, &elements,
-                                              numThreads, ioService);
+  // queue actual insertion tasks
+  _multiArray->_hashArray->batchInsert(creator, destroyer, elements, queue);
+
+  // queue cleanup callback
+  auto allocator = _allocator.get();
+  auto callback = [elements, queue, allocator]() -> void {
+    if (queue->status() != TRI_ERROR_NO_ERROR) {
+      // free all elements to prevent leak
+      for (auto& it : *(elements.get())) {
+        allocator->deallocate(it);
+      }
+    }
+  };
+  std::shared_ptr<arangodb::basics::LocalCallbackTask> cbTask;
+  cbTask.reset(new arangodb::basics::LocalCallbackTask(queue, callback));
+  queue->enqueueCallback(cbTask);
 }
 
 int HashIndex::removeUniqueElement(arangodb::Transaction* trx,

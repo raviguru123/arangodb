@@ -21,6 +21,7 @@
 /// @author Dr. Frank Celler
 /// @author Martin Schoenert
 /// @author Max Neunhoeffer
+/// @author Daniel H. Larkin
 ////////////////////////////////////////////////////////////////////////////////
 
 #ifndef ARANGODB_BASICS_ASSOC_MULTI_H
@@ -29,9 +30,11 @@
 // Activate for additional debugging:
 // #define TRI_CHECK_MULTI_POINTER_HASH 1
 
+#include "Basics/AssocMultiHelpers.h"
 #include "Basics/Barrier.h"
 #include "Basics/Common.h"
 #include "Basics/IndexBucket.h"
+#include "Basics/LocalTaskQueue.h"
 #include "Basics/Mutex.h"
 #include "Basics/MutexLocker.h"
 #include "Basics/ThreadPool.h"
@@ -91,44 +94,6 @@ namespace basics {
 /// this gives the proposed complexity.
 ///
 ////////////////////////////////////////////////////////////////////////////////
-
-template <class Element, class IndexType, bool useHashCache>
-struct Entry {
- private:
-  uint64_t hashCache;  // cache the hash value, this stores the
-                       // hashByKey for the first element in the
-                       // linked list and the hashByElm for all
-                       // others
- public:
-  Element value;   // the data stored in this slot
-  IndexType next;  // index of the data following in the linked
-                   // list of all items with the same key
-  IndexType prev;  // index of the data preceding in the linked
-                   // list of all items with the same key
-  uint64_t readHashCache() const { return hashCache; }
-  void writeHashCache(uint64_t v) { hashCache = v; }
-
-  Entry() : hashCache(0), value(), next(INVALID_INDEX), prev(INVALID_INDEX) {}
-
- private:
-  static IndexType const INVALID_INDEX = ((IndexType)0) - 1;
-};
-
-template <class Element, class IndexType>
-struct Entry<Element, IndexType, false> {
-  Element value;   // the data stored in this slot
-  IndexType next;  // index of the data following in the linked
-                   // list of all items with the same key
-  IndexType prev;  // index of the data preceding in the linked
-                   // list of all items with the same key
-  uint64_t readHashCache() const { return 0; }
-  void writeHashCache(uint64_t v) { TRI_ASSERT(false); }
-
-  Entry() : value(), next(INVALID_INDEX), prev(INVALID_INDEX) {}
-
- private:
-  static IndexType const INVALID_INDEX = ((IndexType)0) - 1;
-};
 
 template <class Key, class Element, class IndexType = size_t,
           bool useHashCache = true>
@@ -325,198 +290,97 @@ class AssocMulti {
   /// @brief adds multiple elements to the array
   //////////////////////////////////////////////////////////////////////////////
 
-  int batchInsert(std::function<void*()> const& contextCreator,
-                  std::function<void(void*)> const& contextDestroyer,
-                  std::vector<Element> const* data, size_t numThreads,
-                  boost::asio::io_service* ioService) {
+  void batchInsert(std::function<void*()> const& contextCreator,
+                   std::function<void(void*)> const& contextDestroyer,
+                   std::shared_ptr<std::vector<Element> const> data,
+                   LocalTaskQueue* queue) {
     if (data->empty()) {
       // nothing to do
-      return TRI_ERROR_NO_ERROR;
+      return;
     }
 
-    if (ioService == nullptr) {
-      throw;
-    }
+    std::vector<Element> const& elements = *(data.get());
 
-    std::atomic<int> res(TRI_ERROR_NO_ERROR);
-
-    std::vector<Element> const& elements = *(data);
-
-    // override numThreads parameter to sensible default
-    numThreads = _buckets.size();
+    size_t numThreads = _buckets.size();
     if (elements.size() < numThreads) {
       numThreads = elements.size();
     }
-    // if (numThreads > _buckets.size()) {
-    //  numThreads = _buckets.size();
-    //}
-
-    TRI_ASSERT(numThreads > 0);
 
     size_t const chunkSize = elements.size() / numThreads;
 
     typedef std::vector<std::pair<Element, uint64_t>> DocumentsPerBucket;
+    typedef MultiInserterTask<Element, IndexType, useHashCache> Inserter;
+    typedef MultiPartitionerTask<Element, IndexType, useHashCache> Partitioner;
 
-    std::vector<arangodb::Mutex> bucketMapLocker(_bucketsMask + 1);
+    std::shared_ptr<std::vector<arangodb::Mutex>> bucketMapLocker;
+    bucketMapLocker.reset(new std::vector<arangodb::Mutex>(_buckets.size()));
 
-    std::vector<std::atomic<size_t>> bucketFlags(_bucketsMask + 1);
-    for (size_t i = 0; i < bucketFlags.size(); i++) {
-      bucketFlags[i] = 0;
+    std::shared_ptr<std::vector<std::atomic<size_t>>> bucketFlags;
+    bucketFlags.reset(new std::vector<std::atomic<size_t>>(_buckets.size()));
+    for (size_t i = 0; i < bucketFlags->size(); i++) {
+      (*bucketFlags)[i] = numThreads;
     }
 
-    // std::vector<arangodb::basics::AuxiliaryTask> inserters;
-    std::vector<std::function<void()>> inserters;
-    inserters.reserve(_bucketsMask + 1);
+    std::shared_ptr<std::vector<std::shared_ptr<Inserter>>> inserters;
+    inserters.reset(new std::vector<std::shared_ptr<Inserter>>);
+    inserters->reserve(_buckets.size());
 
-    std::vector<std::vector<DocumentsPerBucket>> allBuckets;
-    allBuckets.resize(_bucketsMask + 1);  // initialize to number of buckets
+    std::shared_ptr<std::vector<std::vector<DocumentsPerBucket>>> allBuckets;
+    allBuckets.reset(
+        new std::vector<std::vector<DocumentsPerBucket>>(_buckets.size()));
 
-    {
-      arangodb::basics::Barrier barrier(numThreads + allBuckets.size());
+    auto doInsertBinding = [&](
+        UserData* userData, Element const& element, uint64_t hashByKey,
+        Bucket& b, bool const overwrite, bool const checkEquality) -> Element {
+      return doInsert(userData, element, hashByKey, b, overwrite,
+                      checkEquality);
+    };
 
-      // partition the work into some buckets
-      std::function<std::function<void()>(size_t, size_t, void*)> partitioner;
-      partitioner = [&](size_t lower, size_t upper,
-                        void* userData) -> std::function<void()> {
-        auto fn = [&, lower, upper, userData]() -> void {
-          try {
-            std::vector<DocumentsPerBucket> partitions;
-            partitions.resize(_bucketsMask +
-                              1);  // initialize to number of buckets
-
-            for (size_t i = lower; i < upper; ++i) {
-              uint64_t hashByKey = _hashElement(userData, elements[i], true);
-              auto bucketId = hashByKey & _bucketsMask;
-
-              partitions[bucketId].emplace_back(elements[i], hashByKey);
-            }
-
-            // transfer ownership to the central map
-            for (size_t i = 0; i < partitions.size(); ++i) {
-              MUTEX_LOCKER(mutexLocker, bucketMapLocker[i]);
-              allBuckets[i].emplace_back(std::move(partitions[i]));
-              bucketFlags[i]++;
-              if (bucketFlags[i] == numThreads) {
-                // queue inserter for bucket i
-                try {
-                  ioService->dispatch(inserters[i]);
-                  // indexPool->enqueue(inserters[i]);
-                } catch (...) {
-                  barrier.join();
-                }
-              }
-            }
-          } catch (...) {
-            res = TRI_ERROR_INTERNAL;
-          }
-
-          contextDestroyer(userData);
-          barrier.join();
-        };
-
-        return fn;
-      };
-
-      // insert pre-partitioned document chunks
-      std::function<std::function<void()>(size_t, void*)> inserter;
-      inserter = [&](size_t i, void* userData) -> std::function<void()> {
-        // sort vectors in vectors so that we have a deterministics insertion
-        // order
-        auto fn = [&, i, userData]() -> void {
-          std::sort(allBuckets[i].begin(), allBuckets[i].end(),
-                    [](DocumentsPerBucket const& lhs,
-                       DocumentsPerBucket const& rhs) -> bool {
-                      if (lhs.empty() && rhs.empty()) {
-                        return false;
-                      }
-                      if (lhs.empty() && !rhs.empty()) {
-                        return true;
-                      }
-                      if (rhs.empty() && !lhs.empty()) {
-                        return false;
-                      }
-
-                      return lhs[0].first < rhs[0].first;
-                    });
-          // now actually insert them
-          try {
-            Bucket& b = _buckets[static_cast<size_t>(i)];
-
-            for (auto const& it : allBuckets[i]) {
-              for (auto const& it2 : it) {
-                doInsert(userData, it2.first, it2.second, b, true, false);
-              }
-            }
-          } catch (...) {
-            res = TRI_ERROR_INTERNAL;
-          }
-
-          contextDestroyer(userData);
-          barrier.join();
-        };
-
-        return fn;
-      };
-
-      try {
-        for (size_t i = 0; i < allBuckets.size(); i++) {
-          try {
-            std::function<void()> worker = inserter(i, contextCreator());
-            // arangodb::basics::AuxiliaryTask task(worker);
-            inserters.emplace_back(worker);
-          } catch (...) {
-            res = TRI_ERROR_INTERNAL;
-            barrier.join();
-          }
-        }
-        for (size_t i = 0; i < numThreads; ++i) {
-          size_t lower = i * chunkSize;
-          size_t upper = (i + 1) * chunkSize;
-
-          if (i + 1 == numThreads) {
-            // last chunk. account for potential rounding errors
-            upper = elements.size();
-          } else if (upper > elements.size()) {
-            upper = elements.size();
-          }
-
-          try {
-            std::function<void()> worker =
-                partitioner(lower, upper, contextCreator());
-            // arangodb::basics::AuxiliaryTask task(worker);
-            ioService->dispatch(worker);
-            // indexPool->enqueue(task);
-          } catch (...) {
-            res = TRI_ERROR_INTERNAL;
-            barrier.join();
-          }
-        }
-      } catch (...) {
-        res = TRI_ERROR_INTERNAL;
+    try {
+      for (size_t i = 0; i < allBuckets->size(); i++) {
+        std::shared_ptr<Inserter> worker;
+        worker.reset(new Inserter(queue, contextDestroyer, &_buckets,
+                                  doInsertBinding, i, contextCreator(),
+                                  allBuckets));
+        inserters->emplace_back(worker);
       }
+      for (size_t i = 0; i < numThreads; ++i) {
+        size_t lower = i * chunkSize;
+        size_t upper = (i + 1) * chunkSize;
 
-      // barrier waits here until all threads have joined
+        if (i + 1 == numThreads) {
+          // last chunk. account for potential rounding errors
+          upper = elements.size();
+        } else if (upper > elements.size()) {
+          upper = elements.size();
+        }
+
+        std::shared_ptr<Partitioner> worker;
+        worker.reset(new Partitioner(queue, _hashElement, contextDestroyer,
+                                     data, lower, upper, contextCreator(),
+                                     bucketFlags, bucketMapLocker, allBuckets,
+                                     inserters));
+        queue->enqueue(worker);
+      }
+    } catch (...) {
+      queue->setStatus(TRI_ERROR_INTERNAL);
     }
 
 #ifdef TRI_CHECK_MULTI_POINTER_HASH
     {
-      void* userData = contextCreator();
-      check(userData, true, true);
-      contextDestroyer(userData);
+      auto& checkFn = check;
+      auto callback = [&contextCreator, &contextDestroyer, &checkFn]() -> void {
+        if (queue->status() == TRI_ERROR_NO_ERROR) {
+          void* userData = contextCreator();
+          checkFn(userData, true, true);
+          contextDestroyer(userData);
+        }
+      };
+      std::shared_ptr<arangodb::basics::LocalCallbackTask> cbTask;
+      cbTask.reset(new arangodb::basics::LocalCallbackTask(queue, callback));
+      queue->enqueueCallback(cbTask);
     }
 #endif
-    if (res.load() != TRI_ERROR_NO_ERROR) {
-      // Rollback such that the data can be deleted outside
-      void* userData = contextCreator();
-      try {
-        for (auto const& d : *data) {
-          remove(userData, d);
-        }
-      } catch (...) {
-      }
-      contextDestroyer(userData);
-    }
-    return res.load();
   }
 
   void truncate(CallbackElementFuncType callback) {
